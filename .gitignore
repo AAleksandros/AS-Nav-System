@@ -1,0 +1,42 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+*.log
+
+# Virtual Environment
+venv/
+env/
+ENV/
+
+# Editor directories and files
+.idea
+.vscode
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# Data and Logs
+/data
+/logs
+
+# Local-only Files (Cortex TMS)
+.github
+.env
+.cortexrc
+CLAUDE.md
+FUTURE-ENHANCEMENTS.md
+NEXT-TASKS.md
+PROMPTS.md
+/docs

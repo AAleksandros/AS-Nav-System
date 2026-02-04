@@ -1,0 +1,42 @@
+model:
+  name: "yolo11n.pt"
+  confidence_threshold: 0.5
+  device: "cpu"
+
+planning:
+  obstacle_distance_threshold: 100  # pixels
+  critical_distance: 50             # emergency stop distance in pixels
+  obstacle_classes:                 # COCO classes to treat as obstacles
+    - "person"
+    - "bicycle"
+    - "car"
+    - "motorcycle"
+    - "bus"
+    - "truck"
+
+control:
+  agent_start_position: [320, 400]  # [x, y] in pixels
+  agent_speed: 2.0                  # pixels per frame
+  turn_rate: 5.0                    # degrees per frame
+
+visualization:
+  show_boxes: true
+  show_labels: true
+  show_confidence: true
+  show_state: true
+  show_agent: true
+  show_trajectory: true
+  show_metrics: true
+  box_color_by_state:
+    navigate: [0, 255, 0]    # Green
+    avoid: [255, 165, 0]     # Orange
+    stop: [255, 0, 0]        # Red
+
+processing:
+  frame_skip: 1      # Process every Nth frame
+  max_frames: -1     # -1 = process all frames
+
+logging:
+  level: "INFO"
+  log_file: "logs/navigation.log"
+  log_to_console: true
