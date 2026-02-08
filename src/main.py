@@ -5,11 +5,16 @@ This module provides the CLI interface and orchestrates the full processing pipe
 
 import argparse
 import sys
+import time
 from pathlib import Path
-from typing import Optional
 
 from src.config import load_config, merge_config_overrides, print_config
 from src.utils.logger import setup_logger
+from src.utils.video_utils import VideoReader, VideoWriter
+from src.perception import ObjectDetector
+from src.planning import NavigationPlanner
+from src.control import AgentController
+from src.visualization import VisualizationRenderer
 
 
 def parse_arguments() -> argparse.Namespace:
@@ -19,7 +24,10 @@ def parse_arguments() -> argparse.Namespace:
         Parsed arguments namespace
     """
     parser = argparse.ArgumentParser(
-        description="Autonomous Navigation Agent - Process drone footage with YOLO-based obstacle detection",
+        description=(
+            "Autonomous Navigation Agent - Process drone footage "
+            "with YOLO-based obstacle detection"
+        ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
@@ -96,6 +104,7 @@ def validate_paths(args: argparse.Namespace) -> None:
     Raises:
         FileNotFoundError: If input file doesn't exist
         ValueError: If output path is invalid
+
     """
     # Check input file exists
     input_path = Path(args.input)
@@ -170,13 +179,134 @@ def main() -> int:
         logger.debug("Full configuration:")
         print_config(config)
 
-    # TODO: Pipeline processing will be implemented in later phases
-    logger.info("Pipeline processing not yet implemented")
-    logger.info("Placeholder: This is where video processing will occur")
+    # Initialize pipeline components
+    try:
+        logger.info("Initializing pipeline components...")
 
-    logger.info("=" * 60)
-    logger.info("Processing complete")
-    logger.info("=" * 60)
+        # Initialize detector
+        detector = ObjectDetector(config)  # type: ignore
+        logger.info("✓ Object detector initialized")
+
+        # Initialize other components
+        planner = NavigationPlanner(config)  # type: ignore
+        controller = AgentController(config)  # type: ignore
+        renderer = VisualizationRenderer(config)  # type: ignore
+
+        logger.info("✓ All pipeline components initialized")
+
+    except Exception as e:
+        logger.error(f"Failed to initialize pipeline: {e}")
+        return 1
+
+    # Process video
+    try:
+        with VideoReader(args.input) as reader:
+            with VideoWriter(
+                args.output,
+                fps=reader.fps,
+                width=reader.width,
+                height=reader.height
+            ) as writer:
+                logger.info("=" * 60)
+                logger.info("Starting video processing...")
+                logger.info("=" * 60)
+
+                start_time = time.time()
+                frames_processed = 0
+                frames_written = 0
+                total_detections = 0
+                state_counts = {"navigate": 0, "avoid": 0, "stop": 0}
+
+                # Process each frame
+                for frame_idx, frame in enumerate(reader):
+                    try:
+                        # Apply frame skip
+                        frame_skip = config.processing.frame_skip  # type: ignore
+                        if frame_idx % frame_skip != 0:
+                            # Write original frame without processing
+                            writer.write_frame(frame)
+                            frames_written += 1
+                            continue
+
+                        # Check max frames limit (after frame skip)
+                        max_frames = config.processing.max_frames  # type: ignore
+                        if max_frames > 0:
+                            if frames_processed >= max_frames:
+                                logger.info(
+                                    f"Reached max frames limit ({max_frames})"
+                                )
+                                break
+
+                        # 1. Detect obstacles
+                        detections = detector.detect_frame(frame)
+                        total_detections += len(detections)
+
+                        # 2. Get agent state
+                        agent_state = controller.get_agent_state()
+
+                        # 3. Determine state and action
+                        state, action = planner.update(detections, agent_state)
+                        state_counts[state.value] += 1
+
+                        # 4. Execute action
+                        controller.execute_action(action)
+
+                        # 5. Render overlays
+                        annotated_frame = renderer.render(
+                            frame,
+                            detections,
+                            controller.get_agent_state(),
+                            state
+                        )
+
+                        # 6. Write output frame
+                        writer.write_frame(annotated_frame)
+                        frames_written += 1
+                        frames_processed += 1
+
+                        # Progress logging (every 30 frames or 5%)
+                        if frame_idx % 30 == 0 and frame_idx > 0:
+                            elapsed = time.time() - start_time
+                            fps = frames_processed / elapsed
+                            logger.info(
+                                f"Frame {frame_idx}: "
+                                f"State={state.value}, "
+                                f"Detections={len(detections)}, "
+                                f"FPS={fps:.1f}"
+                            )
+
+                    except Exception as e:
+                        logger.warning(
+                            f"Error processing frame {frame_idx}: {e}"
+                        )
+                        # Write original frame on error
+                        writer.write_frame(frame)
+                        frames_written += 1
+                        continue
+
+                # Processing complete
+                elapsed = time.time() - start_time
+                logger.info("=" * 60)
+                logger.info("Processing complete!")
+                logger.info(f"Frames processed: {frames_processed}")
+                logger.info(f"Frames written: {frames_written}")
+                logger.info(f"Total detections: {total_detections}")
+                logger.info(f"Processing time: {elapsed:.1f}s")
+                avg_fps = frames_processed / elapsed if elapsed > 0 else 0
+                logger.info(f"Average FPS: {avg_fps:.1f}")
+                logger.info("State distribution:")
+                for state_name, count in state_counts.items():
+                    pct = (
+                        (count / frames_processed * 100)
+                        if frames_processed > 0
+                        else 0
+                    )
+                    logger.info(f"  {state_name}: {count} ({pct:.1f}%)")
+                logger.info("=" * 60)
+
+    except Exception as e:
+        logger.error(f"Pipeline error: {e}")
+        return 1
 
     return 0
 
