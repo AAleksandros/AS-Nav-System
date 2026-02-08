@@ -15,9 +15,12 @@ planning:
     - "truck"
 
 control:
-  agent_start_position: [320, 400]  # [x, y] in pixels
+  start_x: 320.0                    # starting x position in pixels
+  start_y: 400.0                    # starting y position in pixels
+  start_heading: 90.0               # starting heading in degrees (90 = up)
   agent_speed: 2.0                  # pixels per frame
   turn_rate: 5.0                    # degrees per frame
+  trajectory_length: 100            # max trajectory points to store
 
 visualization:
   show_boxes: true
