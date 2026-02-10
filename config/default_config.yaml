@@ -1,12 +1,17 @@
+# =============================================================================
+# Autonomous Navigation Agent — APF Simulator Configuration
+# =============================================================================
+
+# --- Legacy sections (kept for backward compatibility until Phase 7) ---
 model:
-  name: "yolo11n.pt"  # YOLO11 is newer and more accurate than YOLOv8
-  confidence_threshold: 0.3  # Lowered from 0.5 for better detection
+  name: "yolo11n.pt"
+  confidence_threshold: 0.3
   device: "cpu"
 
 planning:
-  obstacle_distance_threshold: 100  # pixels
-  critical_distance: 50             # emergency stop distance in pixels
-  obstacle_classes:                 # COCO classes to treat as obstacles
+  obstacle_distance_threshold: 100
+  critical_distance: 50
+  obstacle_classes:
     - "person"
     - "bicycle"
     - "car"
@@ -15,44 +20,133 @@ planning:
     - "truck"
 
 control:
-  start_x: 320.0                    # starting x position in pixels
-  start_y: 400.0                    # starting y position in pixels
-  start_heading: 90.0               # starting heading in degrees (90 = up)
-  agent_speed: 2.0                  # pixels per frame
-  turn_rate: 5.0                    # degrees per frame
-  trajectory_length: 100            # max trajectory points to store
+  start_x: 320.0
+  start_y: 400.0
+  start_heading: 90.0
+  agent_speed: 2.0
+  turn_rate: 5.0
+  trajectory_length: 100
+
+processing:
+  frame_skip: 1
+  max_frames: -1
+
+# --- New APF Simulator sections ---
+
+environment:
+  width: 800.0                    # world width in units
+  height: 600.0                   # world height in units
+  agent_radius: 8.0               # agent collision radius
+  scenarios:
+    corridor:
+      static_obstacles:
+        - { x: 200, y: 300, radius: 40 }
+        - { x: 400, y: 200, radius: 35 }
+        - { x: 400, y: 400, radius: 35 }
+        - { x: 600, y: 300, radius: 40 }
+      dynamic_obstacles: []
+      waypoints:
+        - [100, 300]
+        - [700, 300]
+      start: [50, 300]
+      start_heading: 0.0          # radians (0 = east)
+    gauntlet:
+      static_obstacles:
+        - { x: 200, y: 250, radius: 30 }
+        - { x: 200, y: 350, radius: 30 }
+        - { x: 400, y: 200, radius: 30 }
+        - { x: 400, y: 400, radius: 30 }
+        - { x: 600, y: 250, radius: 30 }
+        - { x: 600, y: 350, radius: 30 }
+      dynamic_obstacles: []
+      waypoints:
+        - [100, 300]
+        - [700, 300]
+      start: [50, 300]
+      start_heading: 0.0
+    dynamic:
+      static_obstacles:
+        - { x: 300, y: 300, radius: 40 }
+        - { x: 500, y: 300, radius: 40 }
+      dynamic_obstacles:
+        - { x: 200, y: 150, radius: 20, vx: 30, vy: 20 }
+        - { x: 600, y: 450, radius: 20, vx: -25, vy: -15 }
+      waypoints:
+        - [400, 100]
+        - [400, 500]
+        - [700, 300]
+      start: [50, 300]
+      start_heading: 0.0
+
+sensor:
+  num_rays: 36                    # number of sensor rays
+  max_range: 150.0                # maximum detection range
+  fov: 6.283185307                # field of view in radians (2*pi = 360°)
+  noise_stddev: 1.0               # Gaussian noise std deviation
+  noise_seed: null                # random seed for reproducibility (null = random)
+
+planner:
+  k_att: 1.0                     # attractive force gain
+  k_rep: 100.0                   # repulsive force gain
+  influence_range: 100.0          # repulsive force influence range
+  goal_tolerance: 15.0            # distance to consider goal reached
+  max_speed: 60.0                 # maximum agent speed (units/s)
+  escape_threshold: 2.0           # position change threshold for stuck detection
+  escape_window: 30               # number of steps to track for stuck detection
+  escape_force: 50.0              # magnitude of random escape perturbation
+
+controller:
+  kp: 4.0                        # PID proportional gain
+  ki: 0.1                        # PID integral gain
+  kd: 0.5                        # PID derivative gain
+  max_omega: 4.0                  # max angular velocity (rad/s)
+  integral_limit: 2.0             # anti-windup integral clamp
+  trajectory_length: 500          # max trajectory points to store
 
 visualization:
+  # Legacy keys (used by old pipeline until Phase 7)
   show_boxes: true
   show_labels: true
   show_confidence: true
+  # New APF simulator keys
+  show_obstacles: true
+  show_sensor_rays: true
+  show_force_vectors: true
   show_state: true
   show_agent: true
   show_trajectory: true
   show_metrics: true
-  box_color_by_state:
-    navigate: [0, 255, 0]    # Green
-    avoid: [255, 165, 0]     # Orange
-    stop: [255, 0, 0]        # Red
+  show_waypoints: true
+  show_goal_status: true
+  colors:
+    background: [40, 40, 40]       # dark gray
+    grid: [60, 60, 60]             # lighter gray
+    boundary: [200, 200, 200]      # light gray
+    agent: [0, 200, 255]           # cyan
+    trajectory: [100, 100, 255]    # light blue
+    waypoint: [255, 255, 0]        # yellow
+    waypoint_reached: [100, 100, 100]  # gray
+    obstacle_fill: [80, 80, 80]    # dark gray
+    obstacle_outline: [200, 200, 200]  # light gray
+    sensor_ray_miss: [60, 60, 60]  # dim gray
+    sensor_ray_hit: [255, 80, 80]  # red
+    force_attractive: [0, 255, 100]  # green
+    force_repulsive: [255, 80, 80]   # red
+    force_total: [0, 255, 255]       # cyan
+    state_navigate: [0, 255, 0]    # green
+    state_avoid: [255, 165, 0]     # orange
+    state_stop: [255, 0, 0]        # red
+  force_vector_scale: 3.0          # scale factor for force arrow length
+  sensor_ray_alpha: 0.3            # opacity for sensor rays
 
-processing:
-  frame_skip: 1      # Process every Nth frame
-  max_frames: -1     # -1 = process all frames
+simulation:
+  dt: 0.033                       # time step in seconds (~30 fps)
+  max_steps: 3000                 # maximum simulation steps
+  fps: 30                         # output video FPS
+  video_width: 800                # output video width (pixels)
+  video_height: 600               # output video height (pixels)
 
 logging:
   level: "INFO"
   log_file: "logs/navigation.log"
   log_to_console: true
-
-# Synthetic demo mode configuration (uncomment to enable)
-# synthetic:
-#   width: 1280
-#   height: 720
-#   fps: 24
-#   duration_seconds: 20
-#   scenario: "crossing"  # Options: crossing, converging, gauntlet
-#   waypoints:
-#     - [640, 650]
-#     - [640, 350]
-#     - [640, 50]
-#   waypoint_tolerance: 30
