@@ -1,0 +1,63 @@
+# Synthetic Demo Configuration
+# Tuned for compelling navigation demonstrations
+
+model:
+  name: "yolo11n.pt"
+  confidence_threshold: 0.5
+  device: "cpu"
+
+planning:
+  obstacle_distance_threshold: 120  # Increased for smoother avoidance
+  critical_distance: 40             # Wider safety margin
+  obstacle_classes:
+    - "person"
+    - "bicycle"
+    - "car"
+    - "motorcycle"
+    - "bus"
+    - "truck"
+
+control:
+  start_x: 100.0                    # Left side of frame
+  start_y: 650.0                    # Near bottom
+  start_heading: 45.0               # Facing up-right (diagonal)
+  agent_speed: 3.0                  # Faster movement for demo
+  turn_rate: 5.0                    # degrees per frame
+  trajectory_length: 200            # Longer trail
+
+visualization:
+  show_boxes: true
+  show_labels: true
+  show_confidence: true
+  show_state: true
+  show_agent: true
+  show_trajectory: true
+  show_metrics: true
+  box_color_by_state:
+    navigate: [0, 255, 0]    # Green
+    avoid: [255, 165, 0]     # Orange
+    stop: [255, 0, 0]        # Red
+
+processing:
+  frame_skip: 1      # Process every frame
+  max_frames: -1     # Process all frames
+
+logging:
+  level: "INFO"
+  log_file: "logs/navigation.log"
+  log_to_console: true
+
+# Synthetic demo settings
+synthetic:
+  width: 1280
+  height: 720
+  fps: 24
+  duration_seconds: 20
+  scenario: "crossing"  # Options: crossing, converging, gauntlet
+  waypoints:
+    - [100, 650]   # Start: left bottom corner
+    - [400, 450]   # Waypoint 1: lower-left quadrant
+    - [640, 350]   # Waypoint 2: center
+    - [880, 250]   # Waypoint 3: upper-right quadrant
+    - [1180, 70]   # Goal: right top corner
+  waypoint_tolerance: 30

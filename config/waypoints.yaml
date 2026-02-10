@@ -1,0 +1,46 @@
+# Waypoint definitions for specific videos
+# Each video can have a predefined navigation path
+
+# Synthetic test video (straight path up the middle)
+synthetic_crossing.mp4:
+  waypoints:
+    - [640, 650]   # Start bottom-center
+    - [640, 500]   # Quarter way
+    - [640, 350]   # Half way
+    - [640, 200]   # Three-quarters
+    - [640, 50]    # End top-center
+  tolerance: 30
+
+# Synthetic diagonal path (bottom-left -> center -> top-right)
+synthetic_diagonal.mp4:
+  waypoints:
+    - [128, 648]   # Start bottom-left (10% width, 90% height)
+    - [640, 360]   # Center waypoint (must pass through)
+    - [1152, 72]   # Goal top-right (90% width, 10% height)
+  tolerance: 35
+
+# Real drone footage with urban scene
+5624061-uhd_3840_2160_24fps.mp4:
+  waypoints:
+    - [1280, 1200]  # Start bottom-center
+    - [1280, 900]   # Move up
+    - [1280, 600]   # Continue up
+    - [1280, 300]   # Near top
+  tolerance: 50
+
+# Pedestrian crossing video
+pedestrian_crossing.mp4:
+  waypoints:
+    - [384, 350]    # Start near bottom
+    - [384, 250]    # Move up
+    - [384, 150]    # Continue up
+    - [384, 50]     # End near top
+  tolerance: 25
+
+# Default waypoints for unknown videos (straight up from center-bottom)
+default:
+  waypoints:
+    - [640, 600]
+    - [640, 400]
+    - [640, 200]
+  tolerance: 30
