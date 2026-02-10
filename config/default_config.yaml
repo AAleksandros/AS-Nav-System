@@ -1,6 +1,6 @@
 model:
-  name: "yolo11n.pt"
-  confidence_threshold: 0.5
+  name: "yolo11n.pt"  # YOLO11 is newer and more accurate than YOLOv8
+  confidence_threshold: 0.3  # Lowered from 0.5 for better detection
   device: "cpu"
 
 planning:
@@ -43,3 +43,16 @@ logging:
   level: "INFO"
   log_file: "logs/navigation.log"
   log_to_console: true
+
+# Synthetic demo mode configuration (uncomment to enable)
+# synthetic:
+#   width: 1280
+#   height: 720
+#   fps: 24
+#   duration_seconds: 20
+#   scenario: "crossing"  # Options: crossing, converging, gauntlet
+#   waypoints:
+#     - [640, 650]
+#     - [640, 350]
+#     - [640, 50]
+#   waypoint_tolerance: 30

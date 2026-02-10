@@ -1,13 +1,13 @@
 """Visualization module for rendering frame overlays.
 
 This module provides the VisualizationRenderer class that renders bounding boxes,
-agent position/heading, trajectory history, state indicators, and metrics panels
-on video frames.
+agent position/heading, trajectory history, state indicators, metrics panels,
+waypoints, and goal status on video frames.
 """
 
 import logging
 import math
-from typing import List, Dict, Tuple
+from typing import List, Dict, Optional, Tuple
 
 import cv2  # type: ignore
 import numpy as np
@@ -298,12 +298,149 @@ class VisualizationRenderer:
             self.font_thickness,
         )
 
+    def draw_waypoints(
+        self,
+        frame: np.ndarray,
+        waypoints: List[List[float]],
+        current_idx: int
+    ) -> None:
+        """Draw waypoints with color-coded status.
+
+        Parameters
+        ----------
+        frame : np.ndarray
+            The frame to draw on (modified in-place).
+        waypoints : List[List[float]]
+            List of [x, y] waypoint coordinates.
+        current_idx : int
+            Index of the current target waypoint.
+        """
+        if not waypoints:
+            return
+
+        # Draw connecting lines between waypoints
+        for i in range(len(waypoints) - 1):
+            start = (int(waypoints[i][0]), int(waypoints[i][1]))
+            end = (int(waypoints[i + 1][0]), int(waypoints[i + 1][1]))
+            cv2.line(frame, start, end, (180, 180, 180), 2)
+
+        # Draw waypoint markers with color based on status
+        for i, waypoint in enumerate(waypoints):
+            center = (int(waypoint[0]), int(waypoint[1]))
+
+            if i < current_idx:
+                # Reached waypoints: green
+                color = (0, 255, 0)
+            elif i == current_idx:
+                # Current target waypoint: yellow
+                color = (0, 255, 255)
+            else:
+                # Future waypoints: gray
+                color = (100, 100, 100)
+
+            # Draw filled circle
+            cv2.circle(frame, center, 8, color, -1)
+            # Draw outline
+            cv2.circle(frame, center, 10, (255, 255, 255), 2)
+
+    def draw_goal_status(
+        self,
+        frame: np.ndarray,
+        status_text: str,
+        is_complete: bool
+    ) -> None:
+        """Draw goal status text or completion banner.
+
+        Parameters
+        ----------
+        frame : np.ndarray
+            The frame to draw on (modified in-place).
+        status_text : str
+            Status text to display.
+        is_complete : bool
+            Whether goal is complete (shows large banner if True).
+        """
+        if is_complete:
+            # Draw large centered "GOAL REACHED" banner
+            banner_text = "GOAL REACHED"
+            banner_font_scale = 2.0
+            banner_thickness = 3
+
+            (text_width, text_height), baseline = cv2.getTextSize(
+                banner_text,
+                self.font,
+                banner_font_scale,
+                banner_thickness
+            )
+
+            frame_height, frame_width = frame.shape[:2]
+            center_x = frame_width // 2
+            center_y = frame_height // 2
+
+            # Draw semi-transparent background
+            rect_padding = 30
+            cv2.rectangle(
+                frame,
+                (center_x - text_width // 2 - rect_padding,
+                 center_y - text_height // 2 - rect_padding),
+                (center_x + text_width // 2 + rect_padding,
+                 center_y + text_height // 2 + rect_padding + baseline),
+                (0, 200, 0),  # Green background
+                -1
+            )
+
+            # Draw banner text
+            cv2.putText(
+                frame,
+                banner_text,
+                (center_x - text_width // 2, center_y + text_height // 2),
+                self.font,
+                banner_font_scale,
+                self.COLORS["text"],
+                banner_thickness
+            )
+        else:
+            # Draw small status text in top-right corner
+            (text_width, text_height), baseline = cv2.getTextSize(
+                status_text,
+                self.font,
+                self.font_scale,
+                self.font_thickness
+            )
+
+            frame_width = frame.shape[1]
+            position = (frame_width - text_width - 20, 40)
+
+            # Draw background
+            cv2.rectangle(
+                frame,
+                (frame_width - text_width - 30, 10),
+                (frame_width - 10, 50 + baseline),
+                self.COLORS["background"],
+                -1
+            )
+
+            # Draw text
+            cv2.putText(
+                frame,
+                status_text,
+                position,
+                self.font,
+                self.font_scale,
+                self.COLORS["text"],
+                self.font_thickness
+            )
+
     def render(
         self,
         frame: np.ndarray,
         detections: List[Detection],
         agent: AgentState,
         state: State,
+        waypoints: Optional[List[List[float]]] = None,
+        waypoint_idx: Optional[int] = None,
+        goal_status: Optional[str] = None,
+        is_goal_complete: bool = False,
     ) -> np.ndarray:
         """Render all visualization elements on the frame.
 
@@ -317,13 +454,21 @@ class VisualizationRenderer:
             Current agent state.
         state : State
             Current navigation state.
+        waypoints : Optional[List[List[float]]]
+            Optional list of [x, y] waypoint coordinates to draw.
+        waypoint_idx : Optional[int]
+            Optional current waypoint index (for color-coding).
+        goal_status : Optional[str]
+            Optional goal status text to display.
+        is_goal_complete : bool
+            Whether the goal has been reached (shows banner if True).
 
         Returns
         -------
         np.ndarray
             The annotated frame.
         """
-        # Draw all elements (modifies frame in-place)
+        # Draw all standard elements (modifies frame in-place)
         self.draw_detections(frame, detections, state)
         self.draw_trajectory(frame, agent.trajectory)
         self.draw_agent(frame, agent)
@@ -336,5 +481,13 @@ class VisualizationRenderer:
             "heading": agent.heading,
         }
         self.draw_metrics(frame, metrics)
+
+        # Draw waypoints if provided
+        if waypoints is not None and waypoint_idx is not None:
+            self.draw_waypoints(frame, waypoints, waypoint_idx)
+
+        # Draw goal status if provided
+        if goal_status is not None:
+            self.draw_goal_status(frame, goal_status, is_goal_complete)
 
         return frame

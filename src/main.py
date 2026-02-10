@@ -15,6 +15,7 @@ from src.perception import ObjectDetector
 from src.planning import NavigationPlanner
 from src.control import AgentController
 from src.visualization import VisualizationRenderer
+from src.synthetic_runner import run_synthetic_pipeline
 
 
 def parse_arguments() -> argparse.Namespace:
@@ -45,15 +46,20 @@ Examples:
 
   # Process first 100 frames only
   python -m src.main -i input.mp4 -o output.mp4 --max-frames 100
+
+  # Synthetic demo mode
+  python -m src.main --synthetic -o output/demo.mp4
+  python -m src.main --synthetic --scenario gauntlet -o output/gauntlet.mp4
+  python -m src.main --synthetic --scenario converging --duration 30 -o output/long.mp4
         """
     )
 
-    # Required arguments
+    # Required arguments (input becomes optional with --synthetic)
     parser.add_argument(
         '-i', '--input',
         type=str,
-        required=True,
-        help='Input video file path'
+        default=None,
+        help='Input video file path (not required for --synthetic mode)'
     )
     parser.add_argument(
         '-o', '--output',
@@ -92,6 +98,26 @@ Examples:
         help='Force CPU processing (disable GPU)'
     )
 
+    # Synthetic mode arguments
+    parser.add_argument(
+        '--synthetic',
+        action='store_true',
+        help='Enable synthetic demo mode (no input video required)'
+    )
+    parser.add_argument(
+        '--scenario',
+        type=str,
+        default='crossing',
+        choices=['crossing', 'converging', 'gauntlet'],
+        help='Synthetic scenario type (default: crossing)'
+    )
+    parser.add_argument(
+        '--duration',
+        type=int,
+        default=20,
+        help='Duration in seconds for synthetic demo (default: 20)'
+    )
+
     return parser.parse_args()
 
 
@@ -103,13 +129,16 @@ def validate_paths(args: argparse.Namespace) -> None:
 
     Raises:
         FileNotFoundError: If input file doesn't exist
-        ValueError: If output path is invalid
+        ValueError: If output path is invalid or input missing for non-synthetic mode
 
     """
-    # Check input file exists
-    input_path = Path(args.input)
-    if not input_path.exists():
-        raise FileNotFoundError(f"Input video file not found: {args.input}")
+    # Check input file exists (unless synthetic mode)
+    if not args.synthetic:
+        if args.input is None:
+            raise ValueError("Input video file (-i/--input) required when not using --synthetic mode")
+        input_path = Path(args.input)
+        if not input_path.exists():
+            raise FileNotFoundError(f"Input video file not found: {args.input}")
 
     # Check output directory exists or can be created
     output_path = Path(args.output)
@@ -127,7 +156,17 @@ def main() -> int:
 
     # Load configuration
     try:
-        config = load_config(args.config)
+        # If synthetic mode and no config specified, use synthetic_demo.yaml
+        if args.synthetic and args.config is None:
+            import os
+            config_path = os.path.join(
+                os.path.dirname(os.path.dirname(__file__)),
+                'config',
+                'synthetic_demo.yaml'
+            )
+            config = load_config(config_path)
+        else:
+            config = load_config(args.config)
     except Exception as e:
         print(f"Error loading configuration: {e}", file=sys.stderr)
         return 1
@@ -140,6 +179,11 @@ def main() -> int:
         overrides['max_frames'] = args.max_frames
     if args.no_gpu:
         overrides['model.device'] = 'cpu'
+
+    # Synthetic mode overrides
+    if args.synthetic:
+        overrides['synthetic.scenario'] = args.scenario
+        overrides['synthetic.duration_seconds'] = args.duration
 
     if overrides:
         config = merge_config_overrides(config, overrides)
@@ -162,9 +206,27 @@ def main() -> int:
         logger.error(f"Path validation failed: {e}")
         return 1
 
-    # Log configuration summary
+    # Route to synthetic pipeline if enabled
+    if args.synthetic:
+        logger.info("=" * 60)
+        logger.info("Autonomous Navigation System - Synthetic Mode")
+        logger.info("=" * 60)
+        logger.info(f"Output video: {args.output}")
+        logger.info(f"Scenario: {config.synthetic.scenario}")
+        logger.info(f"Duration: {config.synthetic.duration_seconds}s")
+        logger.info(f"Resolution: {config.synthetic.width}x{config.synthetic.height}")
+        logger.info(f"FPS: {config.synthetic.fps}")
+        logger.info("=" * 60)
+
+        if args.verbose:
+            logger.debug("Full configuration:")
+            print_config(config)
+
+        return run_synthetic_pipeline(config, args.output)
+
+    # Log configuration summary for video mode
     logger.info("=" * 60)
-    logger.info("Autonomous Navigation System - Starting")
+    logger.info("Autonomous Navigation System - Video Mode")
     logger.info("=" * 60)
     logger.info(f"Input video: {args.input}")
     logger.info(f"Output video: {args.output}")

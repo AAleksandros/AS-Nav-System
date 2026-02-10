@@ -6,7 +6,7 @@ updates agent position/heading using movement physics, and maintains trajectory 
 
 import logging
 import math
-from typing import List, Tuple
+from typing import List, Optional, Tuple
 
 from src.config import Config
 from src.models import Action, AgentState
@@ -24,13 +24,22 @@ class AgentController:
         System configuration with control parameters.
     """
 
-    def __init__(self, config: Config) -> None:
+    def __init__(
+        self,
+        config: Config,
+        frame_width: Optional[int] = None,
+        frame_height: Optional[int] = None,
+    ) -> None:
         """Initialize controller with configuration.
 
         Parameters
         ----------
         config : Config
             System configuration.
+        frame_width : Optional[int]
+            Optional frame width for boundary clamping. If None, no clamping.
+        frame_height : Optional[int]
+            Optional frame height for boundary clamping. If None, no clamping.
         """
         self.config = config
         self.logger = logging.getLogger(__name__)
@@ -41,6 +50,10 @@ class AgentController:
         self.trajectory_length: int = (
             config.control.trajectory_length  # type: ignore[attr-defined]
         )
+
+        # Store frame boundaries for clamping
+        self.frame_width = frame_width
+        self.frame_height = frame_height
 
         # Initialize agent state
         start_x: float = config.control.start_x  # type: ignore[attr-defined]
@@ -58,10 +71,11 @@ class AgentController:
         )
 
         self.logger.info(
-            "AgentController initialized at (%.1f, %.1f), heading %.1f°",
+            "AgentController initialized at (%.1f, %.1f), heading %.1f°%s",
             start_x,
             start_y,
             start_heading,
+            f" with bounds {frame_width}x{frame_height}" if frame_width else "",
         )
 
     def execute_action(self, action: Action) -> None:
@@ -102,10 +116,20 @@ class AgentController:
         dx = speed * math.cos(heading_rad)
         dy = -speed * math.sin(heading_rad)  # Negative: y increases downward
 
+        # Calculate new position
+        new_x = self.agent.x + dx
+        new_y = self.agent.y + dy
+
+        # Apply boundary clamping if bounds are set
+        if self.frame_width is not None:
+            new_x = max(0.0, min(new_x, float(self.frame_width)))
+        if self.frame_height is not None:
+            new_y = max(0.0, min(new_y, float(self.frame_height)))
+
         # Update position
         self.agent = AgentState(
-            x=self.agent.x + dx,
-            y=self.agent.y + dy,
+            x=new_x,
+            y=new_y,
             heading=self.agent.heading,
             velocity=speed,
             trajectory=self.agent.trajectory,

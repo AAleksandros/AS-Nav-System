@@ -303,3 +303,131 @@ class TestUnknownAction:
         # Position should not change
         assert controller.agent.x == x_before
         assert controller.agent.y == y_before
+
+
+class TestBoundaryClamping:
+    """Tests for boundary clamping functionality."""
+
+    def test_no_clamping_without_bounds(self, sample_config):
+        """Without frame bounds, agent can move freely."""
+        from src.control import AgentController
+
+        sample_config.control.start_x = 10.0
+        sample_config.control.start_y = 10.0
+        sample_config.control.start_heading = 180.0  # Left
+
+        # Initialize without bounds
+        controller = AgentController(sample_config)
+
+        action = Action(type="move_forward", speed=20.0)
+        controller.execute_action(action)
+
+        # Should move left freely, going negative
+        assert controller.agent.x < 0
+
+    def test_clamping_at_left_boundary(self, sample_config):
+        """Agent position clamped at x=0."""
+        from src.control import AgentController
+
+        sample_config.control.start_x = 10.0
+        sample_config.control.start_y = 100.0
+        sample_config.control.start_heading = 180.0  # Left
+
+        # Initialize with bounds
+        controller = AgentController(sample_config, frame_width=640, frame_height=480)
+
+        action = Action(type="move_forward", speed=20.0)
+        controller.execute_action(action)
+
+        # Should be clamped at 0
+        assert controller.agent.x == 0.0
+        assert controller.agent.y == 100.0
+
+    def test_clamping_at_right_boundary(self, sample_config):
+        """Agent position clamped at x=frame_width."""
+        from src.control import AgentController
+
+        sample_config.control.start_x = 630.0
+        sample_config.control.start_y = 100.0
+        sample_config.control.start_heading = 0.0  # Right
+
+        # Initialize with bounds
+        controller = AgentController(sample_config, frame_width=640, frame_height=480)
+
+        action = Action(type="move_forward", speed=20.0)
+        controller.execute_action(action)
+
+        # Should be clamped at 640
+        assert controller.agent.x == 640.0
+        assert controller.agent.y == 100.0
+
+    def test_clamping_at_top_boundary(self, sample_config):
+        """Agent position clamped at y=0."""
+        from src.control import AgentController
+
+        sample_config.control.start_x = 100.0
+        sample_config.control.start_y = 10.0
+        sample_config.control.start_heading = 90.0  # Up
+
+        # Initialize with bounds
+        controller = AgentController(sample_config, frame_width=640, frame_height=480)
+
+        action = Action(type="move_forward", speed=20.0)
+        controller.execute_action(action)
+
+        # Should be clamped at 0
+        assert controller.agent.x == 100.0
+        assert controller.agent.y == 0.0
+
+    def test_clamping_at_bottom_boundary(self, sample_config):
+        """Agent position clamped at y=frame_height."""
+        from src.control import AgentController
+
+        sample_config.control.start_x = 100.0
+        sample_config.control.start_y = 470.0
+        sample_config.control.start_heading = 270.0  # Down
+
+        # Initialize with bounds
+        controller = AgentController(sample_config, frame_width=640, frame_height=480)
+
+        action = Action(type="move_forward", speed=20.0)
+        controller.execute_action(action)
+
+        # Should be clamped at 480
+        assert controller.agent.x == 100.0
+        assert controller.agent.y == 480.0
+
+    def test_clamping_diagonal_movement(self, sample_config):
+        """Agent position clamped on both axes when moving diagonally."""
+        from src.control import AgentController
+
+        sample_config.control.start_x = 5.0
+        sample_config.control.start_y = 5.0
+        sample_config.control.start_heading = 135.0  # Up-left diagonal
+
+        # Initialize with bounds
+        controller = AgentController(sample_config, frame_width=640, frame_height=480)
+
+        action = Action(type="move_forward", speed=20.0)
+        controller.execute_action(action)
+
+        # Both should be clamped at 0
+        assert controller.agent.x == 0.0
+        assert controller.agent.y == 0.0
+
+    def test_backward_compatibility_no_bounds(self, sample_config):
+        """Without specifying bounds, controller works as before."""
+        from src.control import AgentController
+
+        controller = AgentController(sample_config)
+
+        # Should initialize without error
+        assert controller.agent.x == 320.0
+        assert controller.agent.y == 400.0
+
+        # Should move freely
+        action = Action(type="move_forward", speed=2.0)
+        controller.execute_action(action)
+
+        # Movement should work normally
+        assert controller.agent.y < 400.0

@@ -419,3 +419,150 @@ class TestVisualizationRenderer:
         # Note: In practice, OpenCV modifies in-place, so we'll handle this
         # in implementation by working on the passed frame
         assert original.shape == sample_frame.shape
+
+    @patch('src.visualization.cv2.circle')
+    @patch('src.visualization.cv2.line')
+    def test_draw_waypoints_empty(
+        self, mock_line, mock_circle, mock_config, sample_frame
+    ):
+        """Test drawing with no waypoints."""
+        renderer = VisualizationRenderer(mock_config)
+        frame = sample_frame.copy()
+
+        renderer.draw_waypoints(frame, [], 0)
+
+        # Should not draw anything
+        assert mock_circle.call_count == 0
+        assert mock_line.call_count == 0
+
+    @patch('src.visualization.cv2.circle')
+    def test_draw_waypoints_single(
+        self, mock_circle, mock_config, sample_frame
+    ):
+        """Test drawing single waypoint."""
+        renderer = VisualizationRenderer(mock_config)
+        frame = sample_frame.copy()
+
+        waypoints = [[100, 200]]
+        renderer.draw_waypoints(frame, waypoints, 0)
+
+        # Should draw circles for current waypoint (fill + outline)
+        assert mock_circle.call_count >= 1
+
+    @patch('src.visualization.cv2.circle')
+    @patch('src.visualization.cv2.line')
+    def test_draw_waypoints_multiple(
+        self, mock_line, mock_circle, mock_config, sample_frame
+    ):
+        """Test drawing multiple waypoints with connections."""
+        renderer = VisualizationRenderer(mock_config)
+        frame = sample_frame.copy()
+
+        waypoints = [[100, 200], [200, 300], [300, 400]]
+        renderer.draw_waypoints(frame, waypoints, 0)
+
+        # Should draw circles for each waypoint
+        assert mock_circle.call_count >= 3
+        # Should draw lines connecting waypoints
+        assert mock_line.call_count >= 2
+
+    @patch('src.visualization.cv2.circle')
+    def test_draw_waypoints_color_by_status(
+        self, mock_circle, mock_config, sample_frame
+    ):
+        """Test waypoint colors differ by status (reached/current/future)."""
+        renderer = VisualizationRenderer(mock_config)
+        frame = sample_frame.copy()
+
+        waypoints = [[100, 100], [200, 200], [300, 300]]
+
+        # Current waypoint idx = 1 (second waypoint)
+        renderer.draw_waypoints(frame, waypoints, 1)
+
+        # Should draw circles for all waypoints
+        # Colors should differ: green (reached), yellow (current), gray (future)
+        assert mock_circle.call_count >= 3
+
+    @patch('src.visualization.cv2.putText')
+    def test_draw_goal_status_incomplete(
+        self, mock_putText, mock_config, sample_frame
+    ):
+        """Test drawing goal status when incomplete."""
+        renderer = VisualizationRenderer(mock_config)
+        frame = sample_frame.copy()
+
+        renderer.draw_goal_status(frame, "Waypoint 2/3", is_complete=False)
+
+        # Should draw status text
+        assert mock_putText.call_count >= 1
+        # Text should contain status
+        text = mock_putText.call_args[0][1]
+        assert "Waypoint" in text
+
+    @patch('src.visualization.cv2.rectangle')
+    @patch('src.visualization.cv2.putText')
+    def test_draw_goal_status_complete(
+        self, mock_putText, mock_rectangle, mock_config, sample_frame
+    ):
+        """Test drawing goal reached banner."""
+        renderer = VisualizationRenderer(mock_config)
+        frame = sample_frame.copy()
+
+        renderer.draw_goal_status(frame, "GOAL REACHED", is_complete=True)
+
+        # Should draw banner background
+        assert mock_rectangle.call_count >= 1
+        # Should draw large text
+        assert mock_putText.call_count >= 1
+        # Text should be GOAL REACHED
+        text = mock_putText.call_args[0][1]
+        assert "GOAL REACHED" in text
+
+    @patch('src.visualization.cv2.rectangle')
+    @patch('src.visualization.cv2.circle')
+    @patch('src.visualization.cv2.line')
+    @patch('src.visualization.cv2.putText')
+    def test_render_with_waypoints(
+        self, mock_putText, mock_line, mock_circle, mock_rectangle,
+        mock_config, sample_frame, sample_detections, sample_agent
+    ):
+        """Test render with optional waypoint parameters."""
+        renderer = VisualizationRenderer(mock_config)
+        frame = sample_frame.copy()
+
+        waypoints = [[100, 100], [200, 200], [300, 300]]
+        result = renderer.render(
+            frame,
+            sample_detections,
+            sample_agent,
+            State.NAVIGATE,
+            waypoints=waypoints,
+            waypoint_idx=1,
+            goal_status="Waypoint 2/3"
+        )
+
+        # Should return frame
+        assert result is not None
+        # Should draw waypoints (circles for markers)
+        assert mock_circle.call_count > 0
+        # Should draw goal status
+        assert mock_putText.call_count > 0
+
+    def test_render_backward_compatible(
+        self, mock_config, sample_frame, sample_detections, sample_agent
+    ):
+        """Test render works without waypoint parameters (backward compatible)."""
+        renderer = VisualizationRenderer(mock_config)
+        frame = sample_frame.copy()
+
+        # Should work without waypoints (old signature)
+        result = renderer.render(
+            frame,
+            sample_detections,
+            sample_agent,
+            State.NAVIGATE
+        )
+
+        # Should return frame without error
+        assert result is not None
+        assert result.shape == sample_frame.shape
