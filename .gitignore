@@ -30,6 +30,13 @@ ENV/
 # Data and Logs
 /data
 /logs
+/output
+
+# macOS
+.DS_Store
+
+# YOLO model weights
+*.pt
 
 # Local-only Files (Cortex TMS)
 .github
