@@ -1,8 +1,7 @@
 """Tests for waypoint navigation module."""
 
 import math
-import pytest
-from src.models import AgentState, Action
+from src.models import AgentState
 from src.waypoint_navigator import Waypoint, WaypointNavigator
 
 
@@ -22,7 +21,7 @@ class TestWaypoint:
         waypoint = Waypoint(x=100.0, y=100.0, tolerance=30.0)
         agent = AgentState(x=110.0, y=110.0, heading=0.0)
 
-        distance = math.sqrt((110-100)**2 + (110-100)**2)
+        distance = math.sqrt((110 - 100) ** 2 + (110 - 100) ** 2)
         assert distance < 30.0
         assert waypoint.is_reached(agent)
 
@@ -40,24 +39,23 @@ class TestWaypointNavigator:
     def test_init_with_waypoints(self):
         """Test initialization with waypoints."""
         waypoints = [Waypoint(100, 100), Waypoint(200, 200)]
-        nav = WaypointNavigator(waypoints, turn_rate=5.0, speed=2.0)
+        nav = WaypointNavigator(waypoints)
 
         assert len(nav.waypoints) == 2
-        assert nav.turn_rate == 5.0
-        assert nav.speed == 2.0
         assert nav.current_waypoint_idx == 0
+        assert not nav.is_complete
 
     def test_init_with_empty_waypoints(self):
         """Test initialization with no waypoints."""
-        nav = WaypointNavigator([], turn_rate=5.0, speed=2.0)
+        nav = WaypointNavigator([])
 
         assert len(nav.waypoints) == 0
         assert nav.is_complete
 
     def test_current_waypoint_property(self):
-        """Test current_waypoint property."""
+        """Test current_waypoint property returns correct waypoint."""
         waypoints = [Waypoint(100, 100), Waypoint(200, 200)]
-        nav = WaypointNavigator(waypoints, speed=2.0)
+        nav = WaypointNavigator(waypoints)
 
         assert nav.current_waypoint == waypoints[0]
         nav.current_waypoint_idx = 1
@@ -65,162 +63,86 @@ class TestWaypointNavigator:
         nav.current_waypoint_idx = 2
         assert nav.current_waypoint is None
 
+    def test_current_goal_returns_tuple(self):
+        """Test current_goal returns (x, y) tuple."""
+        waypoints = [Waypoint(100.0, 200.0)]
+        nav = WaypointNavigator(waypoints)
+
+        goal = nav.current_goal
+        assert goal == (100.0, 200.0)
+
+    def test_current_goal_none_when_complete(self):
+        """Test current_goal returns None when all waypoints reached."""
+        nav = WaypointNavigator([])
+
+        assert nav.current_goal is None
+
     def test_is_complete_property(self):
         """Test is_complete property."""
         waypoints = [Waypoint(100, 100)]
-        nav = WaypointNavigator(waypoints, speed=2.0)
+        nav = WaypointNavigator(waypoints)
 
         assert not nav.is_complete
         nav.current_waypoint_idx = 1
         assert nav.is_complete
 
-    def test_calculate_desired_heading_east(self):
-        """Test heading calculation for eastward waypoint."""
-        waypoint = Waypoint(x=200.0, y=100.0)
-        nav = WaypointNavigator([waypoint], speed=2.0)
-        agent = AgentState(x=100.0, y=100.0, heading=90.0)
+    def test_progress_empty(self):
+        """Test progress with no waypoints returns 1.0."""
+        nav = WaypointNavigator([])
+        assert nav.progress == 1.0
 
-        heading = nav.calculate_desired_heading(agent)
-        assert heading is not None
-        assert abs(heading - 0.0) < 0.01  # 0° = right/east
-
-    def test_calculate_desired_heading_north(self):
-        """Test heading calculation for northward waypoint."""
-        waypoint = Waypoint(x=100.0, y=50.0)
-        nav = WaypointNavigator([waypoint], speed=2.0)
-        agent = AgentState(x=100.0, y=100.0, heading=0.0)
-
-        heading = nav.calculate_desired_heading(agent)
-        assert heading is not None
-        assert abs(heading - 90.0) < 0.01  # 90° = up/north
-
-    def test_calculate_desired_heading_west(self):
-        """Test heading calculation for westward waypoint."""
-        waypoint = Waypoint(x=50.0, y=100.0)
-        nav = WaypointNavigator([waypoint], speed=2.0)
-        agent = AgentState(x=100.0, y=100.0, heading=90.0)
-
-        heading = nav.calculate_desired_heading(agent)
-        assert heading is not None
-        assert abs(heading - 180.0) < 0.01  # 180° = left/west
-
-    def test_calculate_desired_heading_south(self):
-        """Test heading calculation for southward waypoint."""
-        waypoint = Waypoint(x=100.0, y=200.0)
-        nav = WaypointNavigator([waypoint], speed=2.0)
-        agent = AgentState(x=100.0, y=100.0, heading=90.0)
-
-        heading = nav.calculate_desired_heading(agent)
-        assert heading is not None
-        assert abs(heading - 270.0) < 0.01  # 270° = down/south
-
-    def test_calculate_desired_heading_no_waypoint(self):
-        """Test heading calculation with no active waypoint."""
-        nav = WaypointNavigator([], speed=2.0)
-        agent = AgentState(x=100.0, y=100.0, heading=90.0)
-
-        heading = nav.calculate_desired_heading(agent)
-        assert heading is None
-
-    def test_get_turn_action_aligned_move_forward(self):
-        """Test action when aligned with waypoint - should move forward."""
-        waypoint = Waypoint(x=100.0, y=50.0, tolerance=10.0)
-        nav = WaypointNavigator([waypoint], turn_rate=5.0, speed=2.5)
-        agent = AgentState(x=100.0, y=100.0, heading=90.0)  # Facing up, waypoint is up
-
-        action = nav.get_turn_action(agent, allow_forward=True)
-
-        assert action.type == "move_forward"
-        assert action.speed == 2.5
-
-    def test_get_turn_action_turn_left(self):
-        """Test action when need to turn left."""
-        waypoint = Waypoint(x=50.0, y=100.0, tolerance=10.0)  # West of agent
-        nav = WaypointNavigator([waypoint], turn_rate=5.0, speed=3.0)
-        agent = AgentState(x=100.0, y=100.0, heading=90.0)  # Facing up
-
-        action = nav.get_turn_action(agent, allow_forward=True)
-
-        assert action.type == "turn_left"
-        assert action.speed == 3.0
-        assert action.angle == 5.0
-
-    def test_get_turn_action_turn_right(self):
-        """Test action when need to turn right."""
-        waypoint = Waypoint(x=200.0, y=100.0, tolerance=10.0)  # East of agent
-        nav = WaypointNavigator([waypoint], turn_rate=5.0, speed=3.0)
-        agent = AgentState(x=100.0, y=100.0, heading=90.0)  # Facing up
-
-        action = nav.get_turn_action(agent, allow_forward=True)
-
-        assert action.type == "turn_right"
-        assert action.speed == 3.0
-        assert action.angle == 5.0
-
-    def test_get_turn_action_waypoint_reached(self):
-        """Test action when waypoint is reached."""
-        waypoint = Waypoint(x=100.0, y=100.0, tolerance=30.0)
-        nav = WaypointNavigator([waypoint], speed=2.0)
-        agent = AgentState(x=105.0, y=105.0, heading=90.0)
-
-        action = nav.get_turn_action(agent, allow_forward=True)
-
-        assert action.type == "stop"
-        assert action.speed == 0.0
-        assert nav.is_complete
-
-    def test_get_turn_action_all_waypoints_complete(self):
-        """Test action when all waypoints reached."""
-        nav = WaypointNavigator([], speed=2.0)
-        agent = AgentState(x=100.0, y=100.0, heading=90.0)
-
-        action = nav.get_turn_action(agent, allow_forward=True)
-
-        assert action.type == "stop"
-        assert action.speed == 0.0
-
-    def test_get_turn_action_blocked_returns_stop(self):
-        """Test action when blocked (allow_forward=False)."""
-        waypoint = Waypoint(x=100.0, y=50.0, tolerance=10.0)
-        nav = WaypointNavigator([waypoint], turn_rate=5.0, speed=2.0)
-        agent = AgentState(x=100.0, y=100.0, heading=90.0)
-
-        action = nav.get_turn_action(agent, allow_forward=False)
-
-        assert action.type == "stop"
-        assert action.speed == 0.0
-
-    def test_get_progress_ratio_empty(self):
-        """Test progress ratio with no waypoints."""
-        nav = WaypointNavigator([], speed=2.0)
-        assert nav.get_progress_ratio() == 1.0
-
-    def test_get_progress_ratio_partial(self):
-        """Test progress ratio at midpoint."""
+    def test_progress_partial(self):
+        """Test progress at various stages."""
         waypoints = [Waypoint(100, 100), Waypoint(200, 200)]
-        nav = WaypointNavigator(waypoints, speed=2.0)
+        nav = WaypointNavigator(waypoints)
 
-        assert nav.get_progress_ratio() == 0.0
+        assert nav.progress == 0.0
         nav.current_waypoint_idx = 1
-        assert nav.get_progress_ratio() == 0.5
+        assert nav.progress == 0.5
         nav.current_waypoint_idx = 2
-        assert nav.get_progress_ratio() == 1.0
+        assert nav.progress == 1.0
 
-    def test_get_status_string_complete(self):
-        """Test status string when complete."""
-        nav = WaypointNavigator([], speed=2.0)
-        agent = AgentState(x=100.0, y=100.0, heading=90.0)
+    def test_check_and_advance_reaches_waypoint(self):
+        """Test check_and_advance advances when within tolerance."""
+        waypoints = [Waypoint(100.0, 100.0, tolerance=30.0), Waypoint(200.0, 200.0)]
+        nav = WaypointNavigator(waypoints)
 
-        status = nav.get_status_string(agent)
-        assert status == "Navigation Complete"
+        # Agent is close to first waypoint
+        result = nav.check_and_advance(105.0, 105.0)
+        assert result is True
+        assert nav.current_waypoint_idx == 1
 
-    def test_get_status_string_active(self):
-        """Test status string with active waypoint."""
-        waypoints = [Waypoint(100, 100), Waypoint(200, 200)]
-        nav = WaypointNavigator(waypoints, speed=2.0)
-        agent = AgentState(x=50.0, y=50.0, heading=90.0)
+    def test_check_and_advance_not_reached(self):
+        """Test check_and_advance does not advance when far away."""
+        waypoints = [Waypoint(100.0, 100.0, tolerance=10.0)]
+        nav = WaypointNavigator(waypoints)
 
-        status = nav.get_status_string(agent)
-        assert "Waypoint 1/2" in status
-        assert "Dist:" in status
-        assert "Progress:" in status
+        result = nav.check_and_advance(200.0, 200.0)
+        assert result is False
+        assert nav.current_waypoint_idx == 0
+
+    def test_check_and_advance_all_complete(self):
+        """Test check_and_advance returns False when all waypoints done."""
+        nav = WaypointNavigator([])
+
+        result = nav.check_and_advance(0.0, 0.0)
+        assert result is False
+
+    def test_check_and_advance_sequential(self):
+        """Test advancing through multiple waypoints sequentially."""
+        waypoints = [
+            Waypoint(100.0, 100.0, tolerance=20.0),
+            Waypoint(200.0, 200.0, tolerance=20.0),
+        ]
+        nav = WaypointNavigator(waypoints)
+
+        # Reach first waypoint
+        assert nav.check_and_advance(100.0, 100.0) is True
+        assert nav.current_waypoint_idx == 1
+        assert not nav.is_complete
+
+        # Reach second waypoint
+        assert nav.check_and_advance(200.0, 200.0) is True
+        assert nav.current_waypoint_idx == 2
+        assert nav.is_complete
+        assert nav.current_goal is None

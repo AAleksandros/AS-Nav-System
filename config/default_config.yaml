@@ -2,23 +2,6 @@
 # Autonomous Navigation Agent — APF Simulator Configuration
 # =============================================================================
 
-# --- Legacy sections (kept for backward compatibility until Phase 7) ---
-model:
-  name: "yolo11n.pt"
-  confidence_threshold: 0.3
-  device: "cpu"
-
-planning:
-  obstacle_distance_threshold: 100
-  critical_distance: 50
-  obstacle_classes:
-    - "person"
-    - "bicycle"
-    - "car"
-    - "motorcycle"
-    - "bus"
-    - "truck"
-
 control:
   start_x: 320.0
   start_y: 400.0
@@ -27,12 +10,6 @@ control:
   turn_rate: 5.0
   trajectory_length: 100
 
-processing:
-  frame_skip: 1
-  max_frames: -1
-
-# --- New APF Simulator sections ---
-
 environment:
   width: 800.0                    # world width in units
   height: 600.0                   # world height in units
@@ -40,10 +17,14 @@ environment:
   scenarios:
     corridor:
       static_obstacles:
-        - { x: 200, y: 300, radius: 40 }
-        - { x: 400, y: 200, radius: 35 }
-        - { x: 400, y: 400, radius: 35 }
-        - { x: 600, y: 300, radius: 40 }
+        # Upper wall forming corridor boundary
+        - { x: 200, y: 420, radius: 35 }
+        - { x: 400, y: 380, radius: 35 }  # narrows in middle
+        - { x: 600, y: 420, radius: 35 }
+        # Lower wall forming corridor boundary
+        - { x: 200, y: 180, radius: 35 }
+        - { x: 400, y: 220, radius: 35 }  # narrows in middle
+        - { x: 600, y: 180, radius: 35 }
       dynamic_obstacles: []
       waypoints:
         - [100, 300]
@@ -52,12 +33,10 @@ environment:
       start_heading: 0.0          # radians (0 = east)
     gauntlet:
       static_obstacles:
-        - { x: 200, y: 250, radius: 30 }
-        - { x: 200, y: 350, radius: 30 }
-        - { x: 400, y: 200, radius: 30 }
-        - { x: 400, y: 400, radius: 30 }
-        - { x: 600, y: 250, radius: 30 }
-        - { x: 600, y: 350, radius: 30 }
+        - { x: 200, y: 300, radius: 40 }
+        - { x: 400, y: 180, radius: 40 }
+        - { x: 400, y: 420, radius: 40 }
+        - { x: 600, y: 300, radius: 40 }
       dynamic_obstacles: []
       waypoints:
         - [100, 300]
@@ -77,38 +56,106 @@ environment:
         - [700, 300]
       start: [50, 300]
       start_heading: 0.0
+    slalom:
+      static_obstacles:
+        - { x: 200, y: 400, radius: 35 }   # upper-left
+        - { x: 350, y: 200, radius: 35 }   # lower-center-left
+        - { x: 500, y: 400, radius: 35 }   # upper-center-right
+        - { x: 650, y: 200, radius: 35 }   # lower-right
+      dynamic_obstacles: []
+      waypoints:
+        - [100, 300]
+        - [700, 300]
+      start: [50, 300]
+      start_heading: 0.0
+    narrow_gap:
+      static_obstacles:
+        - { x: 400, y: 100, radius: 60 }   # bottom wall
+        - { x: 400, y: 230, radius: 40 }   # lower-middle wall
+        - { x: 400, y: 380, radius: 40 }   # upper-middle wall
+        - { x: 400, y: 510, radius: 60 }   # top wall
+      dynamic_obstacles: []
+      waypoints:
+        - [100, 300]
+        - [700, 300]
+      start: [50, 300]
+      start_heading: 0.0
+    u_turn:
+      static_obstacles:
+        - { x: 300, y: 300, radius: 60 }   # big center obstacle
+        - { x: 550, y: 200, radius: 30 }   # minor obstacle to shape path
+      dynamic_obstacles: []
+      waypoints:
+        - [100, 300]
+        - [600, 300]
+      start: [50, 300]
+      start_heading: 0.0
+    crossing:
+      static_obstacles:
+        - { x: 200, y: 150, radius: 30 }   # corner obstacle
+        - { x: 600, y: 450, radius: 30 }   # corner obstacle
+      dynamic_obstacles:
+        - { x: 350, y: 50, radius: 25, vx: 0, vy: 50 }    # moves up
+        - { x: 450, y: 550, radius: 25, vx: 0, vy: -50 }   # moves down
+      waypoints:
+        - [100, 300]
+        - [400, 300]
+        - [700, 300]
+      start: [50, 300]
+      start_heading: 0.0
+    dense:
+      static_obstacles:
+        - { x: 150, y: 200, radius: 20 }
+        - { x: 200, y: 420, radius: 18 }
+        - { x: 280, y: 300, radius: 22 }
+        - { x: 350, y: 150, radius: 20 }
+        - { x: 380, y: 450, radius: 25 }
+        - { x: 430, y: 320, radius: 18 }
+        - { x: 500, y: 200, radius: 22 }
+        - { x: 530, y: 430, radius: 20 }
+        - { x: 580, y: 300, radius: 25 }
+        - { x: 650, y: 180, radius: 18 }
+        - { x: 680, y: 420, radius: 22 }
+      dynamic_obstacles: []
+      waypoints:
+        - [100, 300]
+        - [400, 150]
+        - [700, 450]
+      start: [50, 300]
+      start_heading: 0.0
 
 sensor:
   num_rays: 36                    # number of sensor rays
-  max_range: 150.0                # maximum detection range
+  max_range: 250.0                # maximum detection range
   fov: 6.283185307                # field of view in radians (2*pi = 360°)
   noise_stddev: 1.0               # Gaussian noise std deviation
   noise_seed: null                # random seed for reproducibility (null = random)
 
 planner:
-  k_att: 1.0                     # attractive force gain
-  k_rep: 100.0                   # repulsive force gain
-  influence_range: 100.0          # repulsive force influence range
+  k_att: 20.0                    # attractive force gain
+  k_rep: 80.0                    # repulsive force gain (linear field)
+  influence_range: 120.0          # repulsive force influence range
   goal_tolerance: 15.0            # distance to consider goal reached
-  max_speed: 60.0                 # maximum agent speed (units/s)
+  max_speed: 80.0                 # maximum agent speed (units/s)
   escape_threshold: 2.0           # position change threshold for stuck detection
   escape_window: 30               # number of steps to track for stuck detection
-  escape_force: 50.0              # magnitude of random escape perturbation
+  escape_force: 80.0              # magnitude of random escape perturbation
+  slow_down_distance: 40.0        # decelerate when obstacle within this range
+  cruise_fraction: 0.4            # cruise at this fraction of max_speed
+  vortex_weight: 0.7              # 0.0 = pure APF, 1.0 = pure vortex
+  force_smoothing: 0.3            # EMA alpha (0 = full previous, 1 = no smoothing)
+  symmetry_threshold: 0.3         # net/sum ratio below which nudge activates
+  symmetry_nudge_force: 40.0      # magnitude of symmetry-breaking force
 
 controller:
   kp: 4.0                        # PID proportional gain
   ki: 0.1                        # PID integral gain
-  kd: 0.5                        # PID derivative gain
-  max_omega: 4.0                  # max angular velocity (rad/s)
+  kd: 0.15                       # PID derivative gain
+  max_omega: 6.0                  # max angular velocity (rad/s)
   integral_limit: 2.0             # anti-windup integral clamp
   trajectory_length: 500          # max trajectory points to store
 
 visualization:
-  # Legacy keys (used by old pipeline until Phase 7)
-  show_boxes: true
-  show_labels: true
-  show_confidence: true
-  # New APF simulator keys
   show_obstacles: true
   show_sensor_rays: true
   show_force_vectors: true
