@@ -2,6 +2,9 @@
 
 This module provides the AgentController class that executes navigation actions,
 updates agent position/heading using movement physics, and maintains trajectory history.
+
+Supports both legacy discrete actions (execute_action) and continuous PID-based
+heading control (update) for the APF simulator pipeline.
 """
 
 import logging
@@ -9,7 +12,15 @@ import math
 from typing import List, Optional, Tuple
 
 from src.config import Config
-from src.models import Action, AgentState
+from src.models import Action, AgentState, ControlCommand
+from src.utils.math_utils import angle_difference, normalize_angle
+
+# PIDController imported at type-check time; runtime import is optional
+# to avoid circular imports and keep legacy path working without it.
+try:
+    from src.pid_controller import PIDController
+except ImportError:  # pragma: no cover
+    PIDController = None  # type: ignore[misc, assignment]
 
 
 class AgentController:
@@ -22,6 +33,12 @@ class AgentController:
     ----------
     config : Config
         System configuration with control parameters.
+    frame_width : Optional[int]
+        Optional frame width for boundary clamping (legacy path).
+    frame_height : Optional[int]
+        Optional frame height for boundary clamping (legacy path).
+    pid : Optional[PIDController]
+        PID controller for continuous heading control (APF simulator path).
     """
 
     def __init__(
@@ -29,18 +46,8 @@ class AgentController:
         config: Config,
         frame_width: Optional[int] = None,
         frame_height: Optional[int] = None,
+        pid: Optional["PIDController"] = None,  # type: ignore[type-arg]
     ) -> None:
-        """Initialize controller with configuration.
-
-        Parameters
-        ----------
-        config : Config
-            System configuration.
-        frame_width : Optional[int]
-            Optional frame width for boundary clamping. If None, no clamping.
-        frame_height : Optional[int]
-            Optional frame height for boundary clamping. If None, no clamping.
-        """
         self.config = config
         self.logger = logging.getLogger(__name__)
 
@@ -54,6 +61,9 @@ class AgentController:
         # Store frame boundaries for clamping
         self.frame_width = frame_width
         self.frame_height = frame_height
+
+        # PID controller for continuous update path
+        self.pid = pid
 
         # Initialize agent state
         start_x: float = config.control.start_x  # type: ignore[attr-defined]
@@ -70,6 +80,9 @@ class AgentController:
             trajectory=[(start_x, start_y)],
         )
 
+        # Internal heading in radians for continuous update path
+        self._heading_rad: float = math.radians(start_heading)
+
         self.logger.info(
             "AgentController initialized at (%.1f, %.1f), heading %.1f°%s",
             start_x,
@@ -78,11 +91,55 @@ class AgentController:
             f" with bounds {frame_width}x{frame_height}" if frame_width else "",
         )
 
+    def update(self, command: ControlCommand, dt: float) -> None:
+        """Update agent state using continuous PID heading control.
+
+        Uses the PID controller to track the desired heading from the command,
+        then updates position based on desired speed and current heading.
+        Uses radians and y-up coordinate convention.
+
+        Parameters
+        ----------
+        command : ControlCommand
+            Desired heading and speed.
+        dt : float
+            Time step in seconds.
+        """
+        if self.pid is None:
+            self.logger.warning("update() called without PID controller")
+            return
+
+        # Compute heading error and PID output
+        error = angle_difference(command.desired_heading, self._heading_rad)
+        omega = self.pid.compute(error, dt)
+
+        # Update heading
+        self._heading_rad = normalize_angle(self._heading_rad + omega * dt)
+
+        # Update position (y-up convention)
+        speed = command.desired_speed
+        dx = speed * math.cos(self._heading_rad) * dt
+        dy = speed * math.sin(self._heading_rad) * dt
+        new_x = self.agent.x + dx
+        new_y = self.agent.y + dy
+
+        # Update agent state
+        self.agent = AgentState(
+            x=new_x,
+            y=new_y,
+            heading=self._heading_rad,
+            velocity=speed,
+            trajectory=self.agent.trajectory,
+        )
+
+        # Update trajectory
+        self._update_trajectory()
+
     def execute_action(self, action: Action) -> None:
         """Execute a control action and update agent state.
 
         Updates agent position, heading, velocity, and trajectory based on
-        the action type and parameters.
+        the action type and parameters. Legacy discrete control path.
 
         Parameters
         ----------
