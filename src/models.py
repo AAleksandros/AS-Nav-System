@@ -1,15 +1,20 @@
 """Data models for the autonomous navigation system.
 
 This module defines the core data structures used throughout the navigation pipeline:
-- Detection: Object detection results from YOLO
+- Detection: Object detection results from YOLO (legacy)
 - State: Navigation state machine states
-- Action: Control actions for the agent
+- Action: Control actions for the agent (legacy)
 - AgentState: Current state of the autonomous agent
+- Obstacle: Circular obstacle in 2D world
+- ControlCommand: Continuous control command (heading, speed, angular velocity)
+- SensorReading: Single ray-cast sensor measurement
+- ForceVector: 2D force with source label
 """
 
+import math
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import List, Tuple
+from typing import List, Optional, Tuple
 
 
 class State(Enum):
@@ -107,3 +112,114 @@ class AgentState:
     heading: float = 90.0  # Default: facing up
     velocity: float = 0.0
     trajectory: List[Tuple[float, float]] = field(default_factory=list)
+
+
+# --- New dataclasses for APF simulator ---
+
+
+@dataclass
+class Obstacle:
+    """Circular obstacle in the 2D world.
+
+    Attributes
+    ----------
+    x : float
+        Center x coordinate (world units).
+    y : float
+        Center y coordinate (world units).
+    radius : float
+        Obstacle radius (world units).
+    vx : float
+        Velocity in x direction (world units per second). 0 for static.
+    vy : float
+        Velocity in y direction (world units per second). 0 for static.
+    label : str
+        Human-readable label for the obstacle.
+    """
+
+    x: float
+    y: float
+    radius: float
+    vx: float = 0.0
+    vy: float = 0.0
+    label: str = "obstacle"
+
+    @property
+    def is_dynamic(self) -> bool:
+        """Whether this obstacle is moving."""
+        return self.vx != 0.0 or self.vy != 0.0
+
+    @property
+    def position(self) -> Tuple[float, float]:
+        """Get obstacle center as tuple."""
+        return (self.x, self.y)
+
+
+@dataclass
+class ControlCommand:
+    """Continuous control command for the agent.
+
+    Attributes
+    ----------
+    desired_heading : float
+        Target heading in radians.
+    desired_speed : float
+        Target speed in world units per second.
+    angular_velocity : float
+        Angular velocity in radians per second (set by PID controller).
+    """
+
+    desired_heading: float
+    desired_speed: float
+    angular_velocity: float = 0.0
+
+
+@dataclass
+class SensorReading:
+    """Single ray-cast sensor measurement.
+
+    Attributes
+    ----------
+    angle : float
+        Ray angle in radians (world frame).
+    distance : float
+        Measured distance to nearest obstacle (or max_range if no hit).
+    hit : bool
+        Whether the ray hit an obstacle.
+    hit_point : Optional[Tuple[float, float]]
+        World coordinates of the hit point, or None if no hit.
+    """
+
+    angle: float
+    distance: float
+    hit: bool
+    hit_point: Optional[Tuple[float, float]] = None
+
+
+@dataclass
+class ForceVector:
+    """2D force vector with source label.
+
+    Attributes
+    ----------
+    fx : float
+        Force component in x direction.
+    fy : float
+        Force component in y direction.
+    source : str
+        Label describing the force source (e.g., "attractive", "repulsive").
+    """
+
+    fx: float
+    fy: float
+    source: str = ""
+
+    @property
+    def magnitude(self) -> float:
+        """Magnitude of the force vector."""
+        return math.sqrt(self.fx * self.fx + self.fy * self.fy)
+
+    @property
+    def heading(self) -> float:
+        """Heading of the force vector in radians."""
+        return math.atan2(self.fy, self.fx)

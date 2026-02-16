@@ -4,9 +4,8 @@ This module provides configuration loading and validation from YAML files,
 with support for default values and CLI overrides.
 """
 
-import os
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional
 
 import yaml
 
@@ -88,8 +87,13 @@ def load_config(config_path: Optional[str] = None) -> Config:
         raise ConfigError(f"Failed to parse YAML config: {e}")
 
     # Validate required sections
-    required_sections = ['model', 'planning', 'control', 'visualization', 'processing', 'logging']
-    missing_sections = [section for section in required_sections if section not in config_dict]
+    required_sections = [
+        'environment', 'sensor', 'planner', 'controller',
+        'control', 'visualization', 'simulation', 'logging',
+    ]
+    missing_sections = [
+        s for s in required_sections if s not in config_dict
+    ]
     if missing_sections:
         raise ConfigError(f"Missing required config sections: {missing_sections}")
 
@@ -124,14 +128,15 @@ def merge_config_overrides(config: Config, overrides: Dict[str, Any]) -> Config:
             # Try to find the key in top-level sections
             found = False
             for section in config_dict:
-                if isinstance(config_dict[section], dict) and key in config_dict[section]:
+                if isinstance(config_dict[section], dict) \
+                        and key in config_dict[section]:
                     config_dict[section][key] = value
                     found = True
                     break
             if not found:
                 # Add to processing section by default
-                if 'processing' in config_dict:
-                    config_dict['processing'][key] = value
+                if 'simulation' in config_dict:
+                    config_dict['simulation'][key] = value
 
     return Config(config_dict)
 
