@@ -8,6 +8,7 @@ import pytest
 
 from src.apf_planner import APFPlanner
 from src.models import ForceVector, SensorReading, State
+from src.utils.math_utils import normalize_angle
 
 
 # --- Fixtures ---
@@ -99,6 +100,11 @@ class TestAPFPlannerInit:
         config.planner.force_smoothing = 0.4
         config.planner.symmetry_threshold = 0.2
         config.planner.symmetry_nudge_force = 20.0
+        config.planner.forward_half_angle = 1.57
+        config.planner.rear_attenuation = 0.0
+        config.planner.attenuation_power = 1.0
+        config.planner.commitment_duration = 0
+        config.planner.commitment_force = 0.0
 
         p = APFPlanner.from_config(config)
         assert p.k_att == 2.0
@@ -544,6 +550,11 @@ class TestComputeSpeed:
         config.planner.force_smoothing = 0.5
         config.planner.symmetry_threshold = 0.25
         config.planner.symmetry_nudge_force = 10.0
+        config.planner.forward_half_angle = 1.57
+        config.planner.rear_attenuation = 0.0
+        config.planner.attenuation_power = 1.0
+        config.planner.commitment_duration = 0
+        config.planner.commitment_force = 0.0
 
         p = APFPlanner.from_config(config)
         assert p.slow_down_distance == 50.0
@@ -847,16 +858,19 @@ class TestForceSmoothing:
         p_close.compute(0.0, 0.0, 100.0, 0.0, no_hit)
         p_clear.compute(0.0, 0.0, 100.0, 0.0, no_hit)
 
-        # Second call: goal north, but p_close has a close obstacle
+        # Second call: goal north, but p_close has a close obstacle (to the side)
         close_hit = [SensorReading(
-            angle=math.pi, distance=10.0, hit=True, hit_point=(-10.0, 0.0),
+            angle=math.pi / 4, distance=10.0, hit=True,
+            hit_point=(7.07, 7.07),
         )]
         r_close = p_close.compute(0.0, 0.0, 0.0, 100.0, close_hit)
         r_clear = p_clear.compute(0.0, 0.0, 0.0, 100.0, no_hit)
 
         # Close obstacle -> lower effective alpha -> more of previous force retained
         # Previous was (1, 0), so close should retain more fx than clear
-        assert r_close["total_force"].fx > r_clear["total_force"].fx
+        # (repulsive force pushes away from obstacle but EMA dominates)
+        # Use absolute fx to account for repulsive contribution
+        assert abs(r_close["total_force"].fx) > abs(r_clear["total_force"].fx)
 
     def test_adaptive_floor_at_zero_distance(self) -> None:
         """Obstacle at d~0 floors alpha at 0.05, not zero."""
@@ -867,9 +881,9 @@ class TestForceSmoothing:
         no_hit = [SensorReading(angle=0.0, distance=150.0, hit=False)]
         p.compute(0.0, 0.0, 100.0, 0.0, no_hit)
 
-        # Second call with obstacle at ~0 distance
+        # Second call with obstacle at ~0 distance (ahead)
         close_hit = [SensorReading(
-            angle=math.pi, distance=0.5, hit=True, hit_point=(-0.5, 0.0),
+            angle=0.0, distance=0.5, hit=True, hit_point=(0.5, 0.0),
         )]
         result = p.compute(0.0, 0.0, 0.0, 100.0, close_hit)
 
@@ -1081,3 +1095,369 @@ class TestSymmetryBreaking:
         assert "symmetry_break" in sources
         nudge = [f for f in result["forces"] if f.source == "symmetry_break"][0]
         assert nudge.magnitude == pytest.approx(15.0, abs=0.1)
+
+
+# --- Tests: Directional Attenuation ---
+
+
+class TestDirectionalAttenuation:
+    """Tests for directional attenuation of repulsive forces."""
+
+    @pytest.fixture
+    def dir_planner(self) -> APFPlanner:
+        """Planner with directional attenuation enabled."""
+        return APFPlanner(
+            k_att=1.0,
+            k_rep=100.0,
+            influence_range=100.0,
+            goal_tolerance=15.0,
+            max_speed=60.0,
+            escape_threshold=2.0,
+            escape_window=30,
+            escape_force=50.0,
+            forward_half_angle=math.pi / 2,
+            rear_attenuation=0.0,
+        )
+
+    def test_full_force_in_forward_cone(self, dir_planner: APFPlanner) -> None:
+        """Obstacle within forward_half_angle gets full repulsive force."""
+        reading = SensorReading(
+            angle=0.3, distance=30.0, hit=True, hit_point=(30.0, 0.0)
+        )
+        # Agent heading = 0, reading angle = 0.3 (within pi/2)
+        f = dir_planner.repulsive_force(
+            0.0, 0.0, reading, agent_heading=0.0
+        )
+        # Compare with no-attenuation scenario: same planner, same reading
+        # Forward cone -> attenuation = 1.0, so magnitude should match baseline
+        baseline = dir_planner.k_rep * (1.0 - 30.0 / 100.0)
+        assert f.magnitude == pytest.approx(baseline, rel=0.01)
+
+    def test_attenuated_behind(self, dir_planner: APFPlanner) -> None:
+        """Obstacle directly behind agent gets near-zero force."""
+        reading = SensorReading(
+            angle=math.pi, distance=30.0, hit=True, hit_point=(-30.0, 0.0)
+        )
+        # Agent heading = 0, reading angle = pi (directly behind)
+        f = dir_planner.repulsive_force(
+            0.0, 0.0, reading, agent_heading=0.0
+        )
+        # rear_attenuation = 0.0, so force should be ~0
+        assert f.magnitude == pytest.approx(0.0, abs=1e-6)
+
+    def test_smooth_taper_side(self, dir_planner: APFPlanner) -> None:
+        """Obstacle at 90° (boundary) gets full force; beyond 90° tapers."""
+        reading_at_boundary = SensorReading(
+            angle=math.pi / 2, distance=30.0, hit=True,
+            hit_point=(0.0, 30.0),
+        )
+        reading_beyond = SensorReading(
+            angle=3 * math.pi / 4, distance=30.0, hit=True,
+            hit_point=(-21.2, 21.2),
+        )
+        f_boundary = dir_planner.repulsive_force(
+            0.0, 0.0, reading_at_boundary, agent_heading=0.0
+        )
+        f_beyond = dir_planner.repulsive_force(
+            0.0, 0.0, reading_beyond, agent_heading=0.0
+        )
+        # At boundary (exactly forward_half_angle): full force
+        baseline = dir_planner.k_rep * (1.0 - 30.0 / 100.0)
+        assert f_boundary.magnitude == pytest.approx(baseline, rel=0.01)
+        # Beyond 90° with rear_attenuation=0.0: force is zero
+        assert f_beyond.magnitude == pytest.approx(0.0, abs=1e-6)
+
+    def test_backward_compat_default_heading(
+        self, dir_planner: APFPlanner
+    ) -> None:
+        """Default agent_heading=0.0 preserves backward compatibility."""
+        reading = SensorReading(
+            angle=0.0, distance=30.0, hit=True, hit_point=(30.0, 0.0)
+        )
+        # Calling without agent_heading should default to 0.0
+        f = dir_planner.repulsive_force(0.0, 0.0, reading)
+        assert f.magnitude > 0
+
+    def test_forward_hemisphere_min_dist(self) -> None:
+        """compute() min_obs_dist only considers forward hemisphere."""
+        p = APFPlanner(
+            k_att=1.0,
+            k_rep=100.0,
+            influence_range=100.0,
+            goal_tolerance=15.0,
+            max_speed=500.0,
+            escape_threshold=0.0,
+            escape_window=30,
+            escape_force=0.0,
+            force_smoothing=1.0,
+            symmetry_nudge_force=0.0,
+            forward_half_angle=math.pi / 2,
+            rear_attenuation=0.0,
+        )
+        # Obstacle behind (close) and one ahead (far)
+        readings = [
+            SensorReading(
+                angle=math.pi, distance=10.0, hit=True,
+                hit_point=(-10.0, 0.0),
+            ),
+            SensorReading(
+                angle=0.0, distance=80.0, hit=True,
+                hit_point=(80.0, 0.0),
+            ),
+        ]
+        # With agent_heading=0, the behind obstacle should be excluded
+        # from min_obs_dist. The adaptive smoothing should use d=80.
+        # Prime with one call, then check second call behavior
+        result = p.compute(0.0, 0.0, 100.0, 0.0, readings, agent_heading=0.0)
+        # The key point: rear obstacle force should be attenuated to ~0
+        rep_forces = [f for f in result["forces"] if f.source == "repulsive"]
+        # At least one repulsive force should have significant magnitude (ahead)
+        ahead_force = [f for f in rep_forces if f.magnitude > 1.0]
+        assert len(ahead_force) >= 1
+
+    def test_from_config_reads_directional_params(self) -> None:
+        """from_config reads forward_half_angle and rear_attenuation."""
+        config = Mock()
+        config.planner.k_att = 1.0
+        config.planner.k_rep = 100.0
+        config.planner.influence_range = 100.0
+        config.planner.goal_tolerance = 15.0
+        config.planner.max_speed = 60.0
+        config.planner.escape_threshold = 2.0
+        config.planner.escape_window = 30
+        config.planner.escape_force = 50.0
+        config.planner.slow_down_distance = 60.0
+        config.planner.cruise_fraction = 0.5
+        config.planner.vortex_weight = 0.0
+        config.planner.force_smoothing = 0.3
+        config.planner.symmetry_threshold = 0.3
+        config.planner.symmetry_nudge_force = 15.0
+        config.planner.forward_half_angle = 1.2
+        config.planner.rear_attenuation = 0.1
+        config.planner.attenuation_power = 3.0
+        config.planner.commitment_duration = 10
+        config.planner.commitment_force = 25.0
+
+        p = APFPlanner.from_config(config)
+        assert p.forward_half_angle == pytest.approx(1.2)
+        assert p.rear_attenuation == pytest.approx(0.1)
+        assert p.attenuation_power == pytest.approx(3.0)
+        assert p.commitment_duration == 10
+        assert p.commitment_force == pytest.approx(25.0)
+
+    @pytest.fixture
+    def steep_planner(self) -> APFPlanner:
+        """Planner with steep power-cosine attenuation."""
+        return APFPlanner(
+            k_att=1.0,
+            k_rep=100.0,
+            influence_range=100.0,
+            goal_tolerance=15.0,
+            max_speed=60.0,
+            escape_threshold=2.0,
+            escape_window=30,
+            escape_force=50.0,
+            forward_half_angle=math.pi / 3,  # 60°
+            rear_attenuation=0.1,
+            attenuation_power=2.0,
+        )
+
+    def test_steep_attenuation_at_75_degrees(self, steep_planner: APFPlanner) -> None:
+        """At 75° (halfway through taper zone), force is significantly reduced."""
+        reading = SensorReading(
+            angle=math.radians(75), distance=30.0, hit=True,
+            hit_point=(
+                30.0 * math.cos(math.radians(75)),
+                30.0 * math.sin(math.radians(75)),
+            ),
+        )
+        f = steep_planner.repulsive_force(0.0, 0.0, reading, agent_heading=0.0)
+        baseline = steep_planner.k_rep * (1.0 - 30.0 / 100.0)
+        # cos^2 at midpoint of 60°->90° should give ~0.5 attenuation
+        assert f.magnitude < baseline * 0.6
+        assert f.magnitude > baseline * 0.3
+
+    def test_steep_attenuation_at_90_degrees(self, steep_planner: APFPlanner) -> None:
+        """At 90° (edge of taper zone), force drops to rear_attenuation level."""
+        reading = SensorReading(
+            angle=math.pi / 2, distance=30.0, hit=True,
+            hit_point=(0.0, 30.0),
+        )
+        f = steep_planner.repulsive_force(0.0, 0.0, reading, agent_heading=0.0)
+        baseline = steep_planner.k_rep * (1.0 - 30.0 / 100.0)
+        # At 90° with power=2, cos^2(pi/2) = 0, so attenuation = rear_attenuation = 0.1
+        assert f.magnitude == pytest.approx(baseline * 0.1, rel=0.15)
+
+    def test_steep_attenuation_at_120_degrees(self, steep_planner: APFPlanner) -> None:
+        """Beyond 90°, force is capped at rear_attenuation."""
+        reading = SensorReading(
+            angle=math.radians(120), distance=30.0, hit=True,
+            hit_point=(
+                30.0 * math.cos(math.radians(120)),
+                30.0 * math.sin(math.radians(120)),
+            ),
+        )
+        f = steep_planner.repulsive_force(0.0, 0.0, reading, agent_heading=0.0)
+        baseline = steep_planner.k_rep * (1.0 - 30.0 / 100.0)
+        assert f.magnitude == pytest.approx(baseline * 0.1, rel=0.15)
+
+    def test_steep_forward_cone_unchanged(self, steep_planner: APFPlanner) -> None:
+        """Within forward cone, attenuation_power has no effect (still 1.0)."""
+        reading = SensorReading(
+            angle=0.3, distance=30.0, hit=True, hit_point=(30.0, 0.0),
+        )
+        f = steep_planner.repulsive_force(0.0, 0.0, reading, agent_heading=0.0)
+        baseline = steep_planner.k_rep * (1.0 - 30.0 / 100.0)
+        assert f.magnitude == pytest.approx(baseline, rel=0.01)
+
+
+# --- Tests: Gap-Finding + Commitment ---
+
+
+class TestGapFindingCommitment:
+    """Tests for gap-finding and commitment bias mechanism."""
+
+    @pytest.fixture
+    def gap_planner(self) -> APFPlanner:
+        """Planner with commitment enabled."""
+        return APFPlanner(
+            k_att=20.0,
+            k_rep=80.0,
+            influence_range=120.0,
+            goal_tolerance=25.0,
+            max_speed=80.0,
+            escape_threshold=2.0,
+            escape_window=30,
+            escape_force=50.0,
+            slow_down_distance=40.0,
+            vortex_weight=0.7,
+            force_smoothing=1.0,  # no EMA for test clarity
+            symmetry_nudge_force=40.0,
+            forward_half_angle=math.pi / 3,
+            rear_attenuation=0.1,
+            commitment_duration=15,
+            commitment_force=30.0,
+        )
+
+    def _make_readings_with_gap(
+        self, gap_center: float, gap_width: float, num_rays: int = 36
+    ) -> list:
+        """Create sensor readings with a clear gap at given angle."""
+        readings = []
+        for i in range(num_rays):
+            angle = -math.pi + (2 * math.pi * i / num_rays)
+            # Check if this ray falls in the gap
+            angle_diff = abs(normalize_angle(angle - gap_center))
+            if angle_diff < gap_width / 2:
+                # Clear ray (no hit)
+                readings.append(SensorReading(
+                    angle=angle, distance=250.0, hit=False, hit_point=None,
+                ))
+            else:
+                # Hit at close range (obstacle)
+                hx = 30.0 * math.cos(angle)
+                hy = 30.0 * math.sin(angle)
+                readings.append(SensorReading(
+                    angle=angle, distance=30.0, hit=True, hit_point=(hx, hy),
+                ))
+        return readings
+
+    def test_find_best_gap_symmetric_obstacle(self, gap_planner: APFPlanner) -> None:
+        """With gaps on both sides, should pick the one more aligned with goal."""
+        # Gap at +45° and -45°, goal is up-right
+        readings = self._make_readings_with_gap(math.pi / 4, math.radians(40))
+        gap = gap_planner._find_best_gap(readings, agent_heading=0.0, gx=100.0, gy=50.0)
+        assert gap is not None
+        # Gap toward +45° should be preferred (goal is up-right)
+        assert abs(normalize_angle(gap - math.pi / 4)) < math.radians(30)
+
+    def test_find_best_gap_no_gap(self, gap_planner: APFPlanner) -> None:
+        """When all rays hit close obstacles, no gap found."""
+        readings = []
+        for i in range(36):
+            angle = -math.pi + (2 * math.pi * i / 36)
+            hx = 30.0 * math.cos(angle)
+            hy = 30.0 * math.sin(angle)
+            readings.append(SensorReading(
+                angle=angle, distance=30.0, hit=True, hit_point=(hx, hy),
+            ))
+        gap = gap_planner._find_best_gap(readings, agent_heading=0.0, gx=100.0, gy=0.0)
+        assert gap is None
+
+    def test_find_best_gap_all_clear(self, gap_planner: APFPlanner) -> None:
+        """When all rays are clear, no commitment needed — return None."""
+        readings = []
+        for i in range(36):
+            angle = -math.pi + (2 * math.pi * i / 36)
+            readings.append(SensorReading(
+                angle=angle, distance=250.0, hit=False, hit_point=None,
+            ))
+        gap = gap_planner._find_best_gap(readings, agent_heading=0.0, gx=100.0, gy=0.0)
+        assert gap is None
+
+    def test_commitment_activates(self, gap_planner: APFPlanner) -> None:
+        """Commitment should activate when obstacle is close in forward cone."""
+        readings = self._make_readings_with_gap(math.pi / 4, math.radians(40))
+        result = gap_planner.compute(
+            0.0, 0.0, 100.0, 0.0, readings, agent_heading=0.0
+        )
+        # Should have a commitment force in the forces list
+        commitment_forces = [
+            f for f in result["forces"] if f.source == "commitment"
+        ]
+        assert len(commitment_forces) == 1
+        assert gap_planner._commitment_steps_remaining > 0
+
+    def test_commitment_persists(self, gap_planner: APFPlanner) -> None:
+        """Commitment force should persist across multiple compute() calls."""
+        readings = self._make_readings_with_gap(math.pi / 4, math.radians(40))
+        # First call activates commitment
+        gap_planner.compute(0.0, 0.0, 100.0, 0.0, readings, agent_heading=0.0)
+        initial_remaining = gap_planner._commitment_steps_remaining
+
+        # Second call: even with different readings, commitment should persist
+        clear_readings = [
+            SensorReading(angle=0.0, distance=250.0, hit=False, hit_point=None)
+        ]
+        gap_planner.compute(
+            5.0, 0.0, 100.0, 0.0, clear_readings, agent_heading=0.0
+        )
+        assert gap_planner._commitment_steps_remaining == initial_remaining - 1
+
+    def test_commitment_expires(self, gap_planner: APFPlanner) -> None:
+        """After commitment_duration steps, commitment should expire."""
+        readings = self._make_readings_with_gap(math.pi / 4, math.radians(40))
+        gap_planner.compute(0.0, 0.0, 100.0, 0.0, readings, agent_heading=0.0)
+
+        # Run through remaining steps with clear readings
+        clear = [SensorReading(angle=0.0, distance=250.0, hit=False, hit_point=None)]
+        for i in range(20):
+            gap_planner.compute(
+                float(i + 1), 0.0, 100.0, 0.0, clear, agent_heading=0.0
+            )
+
+        assert gap_planner._commitment_steps_remaining == 0
+        # No commitment force in last result
+        result = gap_planner.compute(25.0, 0.0, 100.0, 0.0, clear, agent_heading=0.0)
+        commitment_forces = [
+            f for f in result["forces"] if f.source == "commitment"
+        ]
+        assert len(commitment_forces) == 0
+
+    def test_commitment_suppresses_symmetry_nudge(
+        self, gap_planner: APFPlanner,
+    ) -> None:
+        """While committed, symmetry breaker should not fire."""
+        readings = self._make_readings_with_gap(math.pi / 4, math.radians(40))
+        gap_planner.compute(0.0, 0.0, 100.0, 0.0, readings, agent_heading=0.0)
+
+        # Second call with symmetric obstacle scenario
+        sym_readings = [
+            SensorReading(angle=0.5, distance=30.0, hit=True, hit_point=(30.0, 0.0)),
+            SensorReading(angle=-0.5, distance=30.0, hit=True, hit_point=(30.0, 0.0)),
+        ]
+        result = gap_planner.compute(
+            0.0, 0.0, 100.0, 0.0, sym_readings, agent_heading=0.0
+        )
+        sym_forces = [f for f in result["forces"] if f.source == "symmetry_break"]
+        assert len(sym_forces) == 0

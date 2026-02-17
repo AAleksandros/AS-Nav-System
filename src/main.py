@@ -24,6 +24,7 @@ from src.visualization import VisualizationRenderer
 from src.waypoint_navigator import Waypoint, WaypointNavigator
 from src.models import ControlCommand, State
 from src.evaluation import RunData
+from src.utils.math_utils import normalize_angle
 
 
 def parse_arguments() -> argparse.Namespace:
@@ -255,8 +256,10 @@ def run_scenario(
             )
 
             # 5. APF planning
+            heading = controller._heading_rad
             result = planner.compute(
-                agent.x, agent.y, gx, gy, readings
+                agent.x, agent.y, gx, gy, readings,
+                agent_heading=heading,
             )
             total_force = result["total_force"]
             state = result["state"]
@@ -268,7 +271,11 @@ def run_scenario(
             else:
                 desired_heading = total_force.heading
 
-            hit_distances = [r.distance for r in readings if r.hit]
+            fwd_cone = planner.forward_half_angle
+            hit_distances = [
+                r.distance for r in readings
+                if r.hit and abs(normalize_angle(r.angle - heading)) <= fwd_cone
+            ]
             min_obstacle_dist = (
                 min(hit_distances) if hit_distances else float("inf")
             )

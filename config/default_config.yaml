@@ -146,6 +146,11 @@ planner:
   force_smoothing: 0.3            # EMA alpha (0 = full previous, 1 = no smoothing)
   symmetry_threshold: 0.3         # net/sum ratio below which nudge activates
   symmetry_nudge_force: 40.0      # magnitude of symmetry-breaking force
+  forward_half_angle: 1.047       # radians (~60°) — forward cone with full repulsion
+  rear_attenuation: 0.1           # min force multiplier for obstacles directly behind
+  attenuation_power: 2.0          # power exponent for cosine taper (steeper = less side force)
+  commitment_duration: 15          # steps to hold committed bypass direction
+  commitment_force: 30.0           # magnitude of gap-steering force
 
 controller:
   kp: 4.0                        # PID proportional gain

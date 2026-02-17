@@ -14,6 +14,7 @@ from typing import Any, Deque, Dict, List, Optional
 
 from src.config import Config
 from src.models import ForceVector, SensorReading, State
+from src.utils.math_utils import normalize_angle
 
 logger = logging.getLogger(__name__)
 
@@ -73,6 +74,11 @@ class APFPlanner:
         force_smoothing: float = 0.3,
         symmetry_threshold: float = 0.3,
         symmetry_nudge_force: float = 15.0,
+        forward_half_angle: float = math.pi / 2,
+        rear_attenuation: float = 0.0,
+        attenuation_power: float = 1.0,
+        commitment_duration: int = 0,
+        commitment_force: float = 0.0,
     ) -> None:
         self.k_att = k_att
         self.k_rep = k_rep
@@ -88,6 +94,13 @@ class APFPlanner:
         self.force_smoothing = max(0.0, min(1.0, force_smoothing))
         self.symmetry_threshold = symmetry_threshold
         self.symmetry_nudge_force = symmetry_nudge_force
+        self.forward_half_angle = forward_half_angle
+        self.rear_attenuation = rear_attenuation
+        self.attenuation_power = max(0.5, attenuation_power)
+        self.commitment_duration = commitment_duration
+        self.commitment_force = commitment_force
+        self._committed_direction: float = 0.0
+        self._commitment_steps_remaining: int = 0
         self._position_history: Deque[tuple] = deque(maxlen=escape_window)
         self._rng = random.Random(escape_seed)
         self._prev_force_x: float = 0.0
@@ -138,6 +151,16 @@ class APFPlanner:
                 getattr(p, 'symmetry_threshold', 0.3)),
             symmetry_nudge_force=float(  # type: ignore
                 getattr(p, 'symmetry_nudge_force', 15.0)),
+            forward_half_angle=float(  # type: ignore
+                getattr(p, 'forward_half_angle', math.pi / 2)),
+            rear_attenuation=float(  # type: ignore
+                getattr(p, 'rear_attenuation', 0.0)),
+            attenuation_power=float(  # type: ignore
+                getattr(p, 'attenuation_power', 1.0)),
+            commitment_duration=int(  # type: ignore
+                getattr(p, 'commitment_duration', 0)),
+            commitment_force=float(  # type: ignore
+                getattr(p, 'commitment_force', 0.0)),
         )
 
     def attractive_force(
@@ -180,6 +203,7 @@ class APFPlanner:
         reading: SensorReading,
         gx: float = 0.0,
         gy: float = 0.0,
+        agent_heading: float = 0.0,
     ) -> ForceVector:
         """Compute repulsive force from a single sensor reading.
 
@@ -233,6 +257,25 @@ class APFPlanner:
         # Linear repulsive force magnitude
         magnitude = self.k_rep * (1.0 - d / d0)
 
+        # Directional attenuation: reduce force from side/rear obstacles
+        rel_angle = abs(normalize_angle(reading.angle - agent_heading))
+        if rel_angle <= self.forward_half_angle:
+            attenuation = 1.0
+        elif rel_angle <= math.pi / 2:
+            # Taper zone: forward_half_angle to 90° using power-cosine
+            t = (rel_angle - self.forward_half_angle) / (
+                math.pi / 2 - self.forward_half_angle
+            )
+            # Map t (0→1) to cos curve: cos(t * pi/2) raised to power
+            attenuation = max(
+                self.rear_attenuation,
+                math.cos(t * math.pi / 2) ** self.attenuation_power,
+            )
+        else:
+            # Beyond 90°: hard cap at rear_attenuation
+            attenuation = self.rear_attenuation
+        magnitude *= attenuation
+
         # Apply vortex field if enabled
         if self.vortex_weight > 0.0:
             # Two tangential candidates: CW and CCW 90-degree rotations
@@ -269,6 +312,7 @@ class APFPlanner:
         gx: float,
         gy: float,
         sensor_readings: List[SensorReading],
+        agent_heading: float = 0.0,
     ) -> Dict[str, Any]:
         """Compute total force, navigation state, and individual forces.
 
@@ -297,19 +341,47 @@ class APFPlanner:
 
         # Repulsive forces from each sensor reading
         for reading in sensor_readings:
-            f_rep = self.repulsive_force(ax, ay, reading, gx, gy)
+            f_rep = self.repulsive_force(ax, ay, reading, gx, gy, agent_heading)
             if f_rep.magnitude > 1e-10:
                 forces.append(f_rep)
 
-        # Compute min obstacle distance (used by symmetry gate and adaptive smoothing)
+        # Compute min obstacle distance (forward cone only)
         min_obs_dist = float("inf")
         for r in sensor_readings:
             if r.hit and r.distance < min_obs_dist:
-                min_obs_dist = r.distance
+                rel = abs(normalize_angle(r.angle - agent_heading))
+                if rel <= self.forward_half_angle:
+                    min_obs_dist = r.distance
+
+        # Gap-finding + commitment: decisive bypass for large frontal obstacles
+        if self.commitment_force > 0.0:
+            if self._commitment_steps_remaining > 0:
+                # Active commitment: apply steering force
+                commit_fx = self.commitment_force * math.cos(self._committed_direction)
+                commit_fy = self.commitment_force * math.sin(self._committed_direction)
+                forces.append(ForceVector(
+                    fx=commit_fx, fy=commit_fy, source="commitment",
+                ))
+                self._commitment_steps_remaining -= 1
+            elif min_obs_dist < self.slow_down_distance:
+                # No active commitment + close forward obstacle: find gap
+                gap_dir = self._find_best_gap(
+                    sensor_readings, agent_heading, gx - ax, gy - ay,
+                )
+                if gap_dir is not None:
+                    self._committed_direction = gap_dir
+                    self._commitment_steps_remaining = self.commitment_duration
+                    commit_fx = self.commitment_force * math.cos(gap_dir)
+                    commit_fy = self.commitment_force * math.sin(gap_dir)
+                    forces.append(ForceVector(
+                        fx=commit_fx, fy=commit_fy, source="commitment",
+                    ))
 
         # Symmetry breaking: detect when opposing repulsive forces cancel
+        # Suppressed while commitment is active
+        is_committed = self._commitment_steps_remaining > 0
         rep_forces = [f for f in forces if f.source == "repulsive"]
-        if rep_forces and self.symmetry_nudge_force > 0.0:
+        if rep_forces and self.symmetry_nudge_force > 0.0 and not is_committed:
             sum_individual = sum(f.magnitude for f in rep_forces)
             net_rx = sum(f.fx for f in rep_forces)
             net_ry = sum(f.fy for f in rep_forces)
@@ -471,6 +543,92 @@ class APFPlanner:
         displacement = math.sqrt(dx * dx + dy * dy)
 
         return displacement < self.escape_threshold
+
+    def _find_best_gap(
+        self,
+        readings: List[SensorReading],
+        agent_heading: float,
+        gx: float,
+        gy: float,
+    ) -> Optional[float]:
+        """Find the best navigable gap in sensor readings.
+
+        Analyzes sensor rays to find contiguous angular gaps where no
+        obstacle is detected within influence range. Returns the center
+        angle of the best gap (scored by width x goal alignment), or
+        None if no gap is needed or found.
+
+        Parameters
+        ----------
+        readings : List[SensorReading]
+            Current sensor scan, sorted by angle.
+        agent_heading : float
+            Current agent heading in radians.
+        gx, gy : float
+            Goal position (relative to agent).
+
+        Returns
+        -------
+        Optional[float]
+            Center angle of the best gap, or None.
+        """
+        if not readings:
+            return None
+
+        # Check if there are enough blocked rays to warrant gap-finding
+        blocked = [
+            r for r in readings
+            if r.hit and r.distance < self.influence_range
+        ]
+        if len(blocked) < 3:
+            # Not enough obstacles to need gap-finding
+            return None
+
+        # Sort readings by angle
+        sorted_readings = sorted(readings, key=lambda r: r.angle)
+
+        # Identify clear rays (no hit or hit beyond influence range)
+        clear_flags = [
+            (not r.hit or r.distance >= self.influence_range)
+            for r in sorted_readings
+        ]
+        angles = [r.angle for r in sorted_readings]
+
+        # Find contiguous runs of clear rays
+        gaps = []
+        i = 0
+        n = len(clear_flags)
+        while i < n:
+            if clear_flags[i]:
+                start = i
+                while i < n and clear_flags[i]:
+                    i += 1
+                end = i - 1
+                gap_start_angle = angles[start]
+                gap_end_angle = angles[end]
+                gap_center = normalize_angle(
+                    (gap_start_angle + gap_end_angle) / 2.0
+                )
+                gap_width = end - start + 1
+                gaps.append((gap_center, gap_width))
+            else:
+                i += 1
+
+        if not gaps:
+            return None
+
+        # Score each gap: width × alignment with goal direction
+        goal_angle = math.atan2(gy, gx)
+        best_gap = None
+        best_score = -float("inf")
+        for center, width in gaps:
+            alignment = math.cos(normalize_angle(center - goal_angle))
+            score = width * (1.0 + alignment)
+            if score > best_score:
+                best_score = score
+                best_gap = center
+
+        return best_gap
 
     def _escape_perturbation(self) -> ForceVector:
         """Generate a random escape force to break out of local minima.
