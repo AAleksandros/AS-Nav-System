@@ -1,15 +1,18 @@
 #!/usr/bin/env python3
-"""Run all 5 new scenarios and generate output videos."""
+"""Run all 8 named scenarios and generate output videos."""
 
 import subprocess
 import sys
 from pathlib import Path
 
-scenarios = ["slalom", "narrow_gap", "u_turn", "crossing", "dense"]
+scenarios = [
+    "corridor", "gauntlet", "dynamic", "slalom",
+    "narrow_gap", "u_turn", "crossing", "dense",
+]
 output_dir = Path("output")
 output_dir.mkdir(exist_ok=True)
 
-print("Running all 5 scenarios...\n")
+print(f"Running all {len(scenarios)} scenarios...\n")
 
 for scenario in scenarios:
     output_file = output_dir / f"{scenario}.mp4"
@@ -27,4 +30,4 @@ for scenario in scenarios:
 
     print(f"[{scenario}] ✓ {output_file}\n")
 
-print("All scenarios completed!")
+print(f"All {len(scenarios)} scenarios completed!")
