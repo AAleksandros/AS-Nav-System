@@ -1,9 +1,7 @@
 """Data models for the autonomous navigation system.
 
 This module defines the core data structures used throughout the navigation pipeline:
-- Detection: Object detection results from YOLO (legacy)
 - State: Navigation state machine states
-- Action: Control actions for the agent (legacy)
 - AgentState: Current state of the autonomous agent
 - Obstacle: Circular obstacle in 2D world
 - ControlCommand: Continuous control command (heading, speed, angular velocity)
@@ -28,70 +26,6 @@ class State(Enum):
     NAVIGATE = "navigate"
     AVOID = "avoid"
     STOP = "stop"
-
-
-@dataclass
-class Detection:
-    """Object detection result from YOLO.
-
-    Represents a single detected object with bounding box coordinates,
-    class information, and confidence score.
-
-    Attributes:
-        x1: Top-left x coordinate (pixels)
-        y1: Top-left y coordinate (pixels)
-        x2: Bottom-right x coordinate (pixels)
-        y2: Bottom-right y coordinate (pixels)
-        class_id: COCO class ID
-        class_name: Human-readable class name
-        confidence: Detection confidence score (0.0 to 1.0)
-    """
-    x1: float
-    y1: float
-    x2: float
-    y2: float
-    class_id: int
-    class_name: str
-    confidence: float
-
-    @property
-    def center(self) -> Tuple[float, float]:
-        """Calculate the center point of the bounding box.
-
-        Returns:
-            Tuple of (center_x, center_y) in pixels
-        """
-        center_x = (self.x1 + self.x2) / 2.0
-        center_y = (self.y1 + self.y2) / 2.0
-        return (center_x, center_y)
-
-    @property
-    def area(self) -> float:
-        """Calculate the area of the bounding box.
-
-        Returns:
-            Area in square pixels
-        """
-        width = self.x2 - self.x1
-        height = self.y2 - self.y1
-        return width * height
-
-
-@dataclass
-class Action:
-    """Control action for the autonomous agent.
-
-    Represents a discrete action that the agent should execute,
-    including movement speed and turning angle.
-
-    Attributes:
-        type: Action type - "move_forward", "turn_left", "turn_right", or "stop"
-        speed: Movement speed in pixels per frame
-        angle: Turning angle in degrees (positive = left, negative = right)
-    """
-    type: str
-    speed: float
-    angle: float = 0.0
 
 
 @dataclass
