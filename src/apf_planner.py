@@ -1,8 +1,9 @@
 """Artificial Potential Fields planner for 2D navigation.
 
-Implements the Khatib (1986) potential field approach with attractive forces
-toward the goal and repulsive forces away from obstacles. Includes a local
-minima escape heuristic based on position history.
+Builds on Khatib (1986) with linear repulsive forces replacing the original
+inverse-distance formulation, vortex circulation for deadlock avoidance
+(Masoud, 2000), and adaptive EMA smoothing. Includes a local minima escape
+heuristic based on position history.
 """
 
 import logging
