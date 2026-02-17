@@ -22,8 +22,8 @@ pip install -r requirements.txt
 # Run a scenario
 python -m src.main --scenario corridor -o output/corridor.mp4
 
-# Run all 8 scenarios
-python run_all_scenarios.py
+# Evaluate all 8 scenarios (headless, terminal table)
+python -m src.evaluate
 ```
 
 ## Scenarios
@@ -50,6 +50,22 @@ python -m src.main --scenario random --seed 42 -o output/random.mp4
 python -m src.main --scenario corridor --duration 30 -o output/long.mp4
 ```
 
+## Evaluation
+
+```bash
+# Evaluate all 8 named scenarios (terminal table)
+python -m src.evaluate
+
+# With matplotlib plots (bar chart, trajectory overlays, radar chart)
+python -m src.evaluate --plots
+
+# Add 20 random scenarios
+python -m src.evaluate --random 20
+
+# Single scenario
+python -m src.evaluate --scenario corridor
+```
+
 ## Architecture
 
 ```
@@ -74,11 +90,13 @@ Simulation Loop (each time step):
 | `src/visualization.py` | Frame renderer with world-to-screen transform |
 | `src/waypoint_navigator.py` | Goal sequencing |
 | `src/main.py` | CLI entry point and simulation orchestration |
+| `src/evaluation.py` | Metrics computation and plotting |
+| `src/evaluate.py` | Batch evaluation CLI |
 
 ## Testing
 
 ```bash
-pytest                                    # run all tests (320 passing)
+pytest                                    # run all tests (448 passing)
 pytest --cov=src --cov-report=term-missing  # with coverage
 ruff check src/ tests/                    # linting
 mypy src/                                 # type checking
