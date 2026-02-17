@@ -50,6 +50,11 @@ class AgentController:
         # PID controller for continuous update path
         self.pid = pid
 
+        # Speed-dependent turn rate limit (centripetal accel cap)
+        self.max_lateral_accel: Optional[float] = getattr(
+            config.controller, "max_lateral_accel", None,  # type: ignore[attr-defined]
+        )
+
         # Initialize agent state
         start_x: float = config.control.start_x  # type: ignore[attr-defined]
         start_y: float = config.control.start_y  # type: ignore[attr-defined]
@@ -96,6 +101,12 @@ class AgentController:
         # Compute heading error and PID output
         error = angle_difference(command.desired_heading, self._heading_rad)
         omega = self.pid.compute(error, dt)
+
+        # Speed-dependent turn rate: ω ≤ max_lateral_accel / speed
+        speed = command.desired_speed
+        if self.max_lateral_accel is not None and speed > 1e-3:
+            speed_omega_limit = self.max_lateral_accel / speed
+            omega = max(-speed_omega_limit, min(speed_omega_limit, omega))
 
         # Update heading
         self._heading_rad = normalize_angle(self._heading_rad + omega * dt)

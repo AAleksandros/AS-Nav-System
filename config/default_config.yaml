@@ -157,6 +157,7 @@ controller:
   ki: 0.1                        # PID integral gain
   kd: 0.15                       # PID derivative gain
   max_omega: 6.0                  # max angular velocity (rad/s)
+  max_lateral_accel: 120.0        # centripetal accel limit (units/s²); caps ω ≤ a_lat/v
   integral_limit: 2.0             # anti-windup integral clamp
   trajectory_length: 500          # max trajectory points to store
 
