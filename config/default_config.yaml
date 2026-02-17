@@ -135,7 +135,7 @@ planner:
   k_att: 20.0                    # attractive force gain
   k_rep: 80.0                    # repulsive force gain (linear field)
   influence_range: 120.0          # repulsive force influence range
-  goal_tolerance: 15.0            # distance to consider goal reached
+  goal_tolerance: 25.0            # distance to consider goal reached
   max_speed: 80.0                 # maximum agent speed (units/s)
   escape_threshold: 2.0           # position change threshold for stuck detection
   escape_window: 30               # number of steps to track for stuck detection

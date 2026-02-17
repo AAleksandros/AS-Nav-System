@@ -63,6 +63,9 @@ class WaypointNavigator:
         self.waypoints = waypoints
         self.current_waypoint_idx = 0
         self.logger = logging.getLogger(__name__)
+        self._prev_distance: Optional[float] = None
+        self._min_approach_distance: float = float("inf")
+        self._receding_count: int = 0
 
         if waypoints:
             self.logger.info(f"Initialized with {len(waypoints)} waypoints")
@@ -115,6 +118,11 @@ class WaypointNavigator:
     def check_and_advance(self, x: float, y: float) -> bool:
         """Check if current waypoint is reached and advance if so.
 
+        Uses two advancement criteria:
+        1. Radius-based: agent is within waypoint tolerance (original).
+        2. Overshoot: agent approached within 2x tolerance then receded
+           for 2+ consecutive steps (prevents U-turns from near-misses).
+
         Args:
             x: Agent x position
             y: Agent y position
@@ -126,15 +134,52 @@ class WaypointNavigator:
         if wp is None:
             return False
 
-        # Create a temporary AgentState for distance check
-        agent = AgentState(x=x, y=y)
-        if wp.is_reached(agent):
+        # Compute distance to current waypoint
+        dx = wp.x - x
+        dy = wp.y - y
+        dist = math.sqrt(dx * dx + dy * dy)
+
+        # Primary check: radius-based advancement (unchanged)
+        if dist <= wp.tolerance:
             self.logger.info(
                 "Reached waypoint %d/%d at (%.1f, %.1f)",
                 self.current_waypoint_idx + 1,
                 len(self.waypoints), wp.x, wp.y,
             )
             self.current_waypoint_idx += 1
+            self._reset_tracking()
             return True
 
+        # Secondary check: closest-approach overshoot detection
+        self._min_approach_distance = min(self._min_approach_distance, dist)
+        overshoot_tolerance = wp.tolerance * 2.0
+
+        if self._prev_distance is not None:
+            if dist > self._prev_distance:
+                self._receding_count += 1
+            else:
+                self._receding_count = 0
+
+            if (
+                self._receding_count >= 2
+                and self._min_approach_distance <= overshoot_tolerance
+            ):
+                self.logger.info(
+                    "Overshoot-advanced waypoint %d/%d at (%.1f, %.1f)"
+                    " (closest approach: %.1f)",
+                    self.current_waypoint_idx + 1,
+                    len(self.waypoints), wp.x, wp.y,
+                    self._min_approach_distance,
+                )
+                self.current_waypoint_idx += 1
+                self._reset_tracking()
+                return True
+
+        self._prev_distance = dist
         return False
+
+    def _reset_tracking(self) -> None:
+        """Reset overshoot tracking state for a new waypoint."""
+        self._prev_distance = None
+        self._min_approach_distance = float("inf")
+        self._receding_count = 0
