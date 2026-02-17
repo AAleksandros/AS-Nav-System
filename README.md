@@ -26,6 +26,17 @@ python -m src.main --scenario corridor -o output/corridor.mp4
 python -m src.evaluate
 ```
 
+### Docker
+
+```bash
+docker build -t as-nav-agent .
+docker run --rm -v $(pwd)/output:/app/output as-nav-agent
+
+# Override default command
+docker run --rm -v $(pwd)/output:/app/output as-nav-agent \
+    python -m src.main --scenario corridor -o output/corridor.mp4
+```
+
 ## Scenarios
 
 | Scenario | Description |
@@ -66,6 +77,35 @@ python -m src.evaluate --random 20
 python -m src.evaluate --scenario corridor
 ```
 
+## Algorithm Details
+
+### APF Planner
+
+The planner uses **linear repulsion** instead of the classical Khatib 1/d² formulation:
+
+```
+F_rep = k_rep * (1 - d / d_0)   for d < d_0
+F_rep = 0                        for d >= d_0
+```
+
+The classical formulation concentrates 99% of force within a few units of the obstacle surface, making it unusable for navigation at practical distances. Linear repulsion provides meaningful deflection across the full influence range.
+
+**Vortex field**: The repulsive force is rotated 90° toward the goal side, then blended 70% tangential / 30% radial. This prevents head-on deadlocks where attractive and repulsive forces cancel.
+
+**Adaptive EMA smoothing**: The smoothing factor scales with proximity — near obstacles, 95% of the previous frame is retained (preventing oscillation); far from obstacles, standard 70% smoothing applies.
+
+**Speed control**: Sqrt deceleration (`speed = cruise * sqrt(d / d_slow)`) retains ~71% speed at half the slow-down distance, avoiding the sluggishness of linear deceleration. A minimum speed floor of 15.0 u/s prevents stalling.
+
+**Symmetry breaking**: When opposing repulsive forces cancel (net/sum ratio < 0.3), a clockwise perpendicular nudge force is applied to break the deadlock.
+
+### PID Heading Controller
+
+Standard PID with anti-windup integral clamping and configurable max angular velocity. Tracks the desired heading output from the APF planner.
+
+### Coordinate Convention
+
+All code uses radians with y-up (standard math convention). Only the visualization module converts to y-down for OpenCV rendering.
+
 ## Architecture
 
 ```
@@ -93,22 +133,67 @@ Simulation Loop (each time step):
 | `src/evaluation.py` | Metrics computation and plotting |
 | `src/evaluate.py` | Batch evaluation CLI |
 
+## Project Structure
+
+```
+as-nav-agent/
+├── src/
+│   ├── main.py              # Simulation loop + CLI
+│   ├── evaluate.py          # Batch evaluation CLI
+│   ├── evaluation.py         # Metrics, plotting
+│   ├── config.py            # YAML config loading
+│   ├── models.py            # Data models (State, AgentState, Obstacle, etc.)
+│   ├── environment.py       # 2D world with obstacles
+│   ├── sensors.py           # Ray-casting range sensor
+│   ├── apf_planner.py       # Artificial Potential Fields planner
+│   ├── pid_controller.py    # PID heading controller
+│   ├── control.py           # Agent controller (PID + kinematics)
+│   ├── visualization.py     # Frame renderer
+│   ├── waypoint_navigator.py # Waypoint sequencing
+│   └── utils/
+│       ├── logger.py        # Structured logging
+│       ├── math_utils.py    # Core math functions
+│       └── video_utils.py   # Video I/O
+├── config/
+│   └── default_config.yaml  # Default configuration
+├── tests/
+│   ├── unit/                # Unit tests per module
+│   └── integration/         # Pipeline + behavioral tests
+├── Dockerfile               # Reproducible execution
+└── requirements.txt
+```
+
 ## Testing
 
 ```bash
-pytest                                    # run all tests (448 passing)
+pytest                                    # run all tests (426 passing)
 pytest --cov=src --cov-report=term-missing  # with coverage
+pytest tests/integration/test_behavioral.py  # behavioral acceptance tests only
 ruff check src/ tests/                    # linting
 mypy src/                                 # type checking
 ```
 
-## Technical Details
+## Development
 
-**APF Design**: The planner uses linear repulsion (`F = k_rep * (1 - d/d0)`) instead of the classical Khatib 1/d² formulation, which concentrates force too close to obstacle surfaces. A vortex field (70% tangential / 30% radial) prevents head-on deadlocks. Adaptive EMA smoothing reduces heading oscillation near obstacles, and a gated symmetry breaker handles balanced opposing forces.
+```bash
+# Setup
+python -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
 
-**Coordinate Convention**: All code uses radians with y-up (standard math convention). Only the visualization module converts to y-down for OpenCV rendering.
+# Verify
+pytest --cov=src --cov-report=term-missing
+ruff check src/ tests/
+mypy src/
+```
 
-**Configuration**: All tunable parameters live in `config/default_config.yaml` with sections for environment, sensor, planner, controller, visualization, and simulation.
+## Future Work
+
+- **RRT* path planning** -- Global planner as comparison to reactive APF; displays planned path vs actual trajectory
+- **Extended Kalman Filter** -- State estimation fusing noisy sensor readings for better obstacle position estimates
+- **Multi-agent simulation** -- Multiple agents with mutual repulsive forces for inter-agent collision avoidance
+- **Interactive demo** -- Streamlit web interface with adjustable APF/PID parameters via sliders
+- **Agent behavior profiles** -- Configurable navigation personalities (drone, ground robot, wall-follower) via heading-aware force attenuation
 
 ## License
 
