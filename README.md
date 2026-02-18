@@ -4,6 +4,18 @@
 
 A Python-based autonomous navigation system that simulates intelligent obstacle avoidance in a 2D world. The agent uses APF (Artificial Potential Fields) for reactive path planning, a PID controller for heading tracking, and ray-cast range sensors for obstacle detection. Designed as a DTU MSc Autonomous Systems portfolio project demonstrating real algorithms from the autonomous systems literature.
 
+## Demo
+
+<p align="center">
+  <img src="assets/demo_gauntlet.gif" alt="Gauntlet scenario" width="45%">
+  &nbsp;&nbsp;
+  <img src="assets/demo_dynamic.gif" alt="Dynamic obstacles scenario" width="45%">
+</p>
+
+<p align="center">
+  <em>Left: Gauntlet — slalom through static obstacles. Right: Dynamic — evading moving obstacles.</em>
+</p>
+
 ## Key Algorithms
 
 - **Artificial Potential Fields** -- Linear repulsive forces with vortex circulation for smooth obstacle avoidance
@@ -25,6 +37,15 @@ python -m src.main --scenario corridor -o output/corridor.mp4
 # Evaluate all 8 scenarios (headless, terminal table)
 python -m src.evaluate
 ```
+
+### Interactive Demo (Streamlit)
+
+```bash
+pip install -r requirements-streamlit.txt
+streamlit run streamlit_app/app.py
+```
+
+Pick a preset scenario or build a custom one with click-to-place obstacles and waypoints. Tune APF parameters via sliders and watch the simulation play back as video with metrics.
 
 ### Docker
 
@@ -166,7 +187,7 @@ as-nav-agent/
 ## Testing
 
 ```bash
-pytest                                    # run all tests (426 passing)
+pytest                                    # run all tests (453 passing)
 pytest --cov=src --cov-report=term-missing  # with coverage
 pytest tests/integration/test_behavioral.py  # behavioral acceptance tests only
 ruff check src/ tests/                    # linting
