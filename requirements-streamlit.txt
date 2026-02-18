@@ -1,0 +1,13 @@
+# Streamlit interactive demo dependencies
+# Install with: pip install -r requirements-streamlit.txt
+
+# Core simulation deps (also in requirements.txt)
+opencv-python==4.8.1.78
+numpy==1.24.3
+PyYAML==6.0.1
+matplotlib>=3.5.0
+
+# Streamlit app
+streamlit>=1.30
+streamlit-drawable-canvas-fix
+Pillow
