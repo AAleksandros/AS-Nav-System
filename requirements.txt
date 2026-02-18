@@ -1,8 +1,13 @@
 # Core Dependencies
-opencv-python==4.8.1.78
-numpy==1.24.3
-PyYAML==6.0.1
-matplotlib>=3.5.0
+opencv-python-headless>=4.8
+numpy>=1.24
+PyYAML>=6.0
+matplotlib>=3.5
+
+# Streamlit App
+streamlit>=1.30
+streamlit-drawable-canvas-fix
+Pillow
 
 # Development Dependencies
 pytest==7.4.0
