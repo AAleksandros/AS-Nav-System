@@ -23,19 +23,28 @@ from streamlit_drawable_canvas import st_canvas  # type: ignore
 
 from src.models import Obstacle
 
-# Canvas dimensions (match world size)
-CANVAS_WIDTH = 800
-CANVAS_HEIGHT = 600
+# Canvas dimensions — scaled down from world size (800x600) to fit
+# Streamlit Cloud column layouts without clipping.
+CANVAS_WIDTH = 640
+CANVAS_HEIGHT = 480
+
+# World dimensions (used for coordinate conversion)
+WORLD_WIDTH = 800
+WORLD_HEIGHT = 600
 
 
 def canvas_to_world(cx: float, cy: float) -> Tuple[float, float]:
-    """Convert canvas (y-down) to world (y-up) coordinates."""
-    return (cx, CANVAS_HEIGHT - cy)
+    """Convert canvas (y-down, scaled) to world (y-up, 800x600) coordinates."""
+    wx = cx * WORLD_WIDTH / CANVAS_WIDTH
+    wy = WORLD_HEIGHT - (cy * WORLD_HEIGHT / CANVAS_HEIGHT)
+    return (wx, wy)
 
 
 def world_to_canvas(wx: float, wy: float) -> Tuple[float, float]:
-    """Convert world (y-up) to canvas (y-down) coordinates."""
-    return (wx, CANVAS_HEIGHT - wy)
+    """Convert world (y-up, 800x600) to canvas (y-down, scaled) coordinates."""
+    cx = wx * CANVAS_WIDTH / WORLD_WIDTH
+    cy = (WORLD_HEIGHT - wy) * CANVAS_HEIGHT / WORLD_HEIGHT
+    return (cx, cy)
 
 
 
@@ -63,7 +72,7 @@ def _draw_scenario_preview(
     # Obstacles
     for obs in obstacles:
         cx, cy = world_to_canvas(obs["x"], obs["y"])
-        r = int(obs["radius"])
+        r = int(obs["radius"] * CANVAS_WIDTH / WORLD_WIDTH)
         cv2.circle(bg, (int(cx), int(cy)), r, (80, 80, 80), -1)
         cv2.circle(bg, (int(cx), int(cy)), r, (200, 200, 200), 2)
 
@@ -168,7 +177,7 @@ def render_custom_canvas(placement_mode: str, obstacle_radius: int = 25) -> None
         fill_color=fill_color,
         width=CANVAS_WIDTH,
         height=CANVAS_HEIGHT,
-        point_display_radius=obstacle_radius if placement_mode == "Obstacles" else 8,
+        point_display_radius=int(obstacle_radius * CANVAS_WIDTH / WORLD_WIDTH) if placement_mode == "Obstacles" else 8,
         display_toolbar=False,
         key="custom_canvas",
     )
@@ -192,18 +201,20 @@ def render_custom_canvas(placement_mode: str, obstacle_radius: int = 25) -> None
         obj_type = obj.get("type", "")
 
         if placement_mode == "Obstacles":
+            scale = WORLD_WIDTH / CANVAS_WIDTH
             if obj_type == "circle":
                 # Drag-drawn circle: center at (left + radius, top + radius)
                 cx = obj.get("left", 0) + obj.get("radius", obstacle_radius)
                 cy = obj.get("top", 0) + obj.get("radius", obstacle_radius)
-                radius = max(obj.get("radius", obstacle_radius), 10)
+                radius_canvas = max(obj.get("radius", obstacle_radius), 10)
             else:
                 # Fallback: treat as point click, use default radius
                 cx = obj.get("left", 0)
                 cy = obj.get("top", 0)
-                radius = obstacle_radius
+                radius_canvas = int(obstacle_radius * CANVAS_WIDTH / WORLD_WIDTH)
             wx, wy = canvas_to_world(cx, cy)
-            st.session_state.obstacles.append({"x": wx, "y": wy, "radius": radius})
+            world_radius = radius_canvas * scale
+            st.session_state.obstacles.append({"x": wx, "y": wy, "radius": world_radius})
 
         elif placement_mode == "Waypoints":
             cx = obj.get("left", 0)
