@@ -374,6 +374,7 @@ class VisualizationRenderer:
         frame: np.ndarray,
         waypoints: List[Tuple[float, float]],
         current_idx: int,
+        agent_start: Optional[Tuple[float, float]] = None,
     ) -> None:
         """Draw waypoints with color-coded status (world coords).
 
@@ -385,9 +386,18 @@ class VisualizationRenderer:
             List of (x, y) waypoint positions in world coordinates.
         current_idx : int
             Index of the current target waypoint.
+        agent_start : Optional[Tuple[float, float]]
+            Agent starting position (x, y) in world coordinates.
+            If provided, a line is drawn from start to first waypoint.
         """
         if not self.show_waypoints or not waypoints:
             return
+
+        # Draw line from agent start to first waypoint
+        if agent_start is not None:
+            start_screen = self.world_to_screen(*agent_start)
+            first_wp_screen = self.world_to_screen(*waypoints[0])
+            cv2.line(frame, start_screen, first_wp_screen, (180, 180, 180), 2)
 
         # Draw connecting lines between waypoints
         for i in range(len(waypoints) - 1):
@@ -508,6 +518,7 @@ class VisualizationRenderer:
         current_waypoint_idx: int = 0,
         goal_status: Optional[str] = None,
         is_goal_complete: bool = False,
+        agent_start: Optional[Tuple[float, float]] = None,
     ) -> np.ndarray:
         """Render APF simulation visualization (world coords, radians).
 
@@ -535,6 +546,8 @@ class VisualizationRenderer:
             Optional goal status text.
         is_goal_complete : bool
             Whether goal is complete.
+        agent_start : Optional[Tuple[float, float]]
+            Agent starting position for waypoint line drawing.
 
         Returns
         -------
@@ -556,7 +569,8 @@ class VisualizationRenderer:
         self.draw_metrics(frame, metrics)
 
         if waypoints:
-            self.draw_waypoints(frame, waypoints, current_waypoint_idx)
+            self.draw_waypoints(frame, waypoints, current_waypoint_idx,
+                                agent_start=agent_start)
 
         if goal_status is not None:
             self.draw_goal_status(frame, goal_status, is_goal_complete)

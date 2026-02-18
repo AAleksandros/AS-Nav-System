@@ -240,6 +240,7 @@ def run_scenario(
                             current_waypoint_idx=len(waypoints),
                             goal_status="GOAL REACHED",
                             is_goal_complete=True,
+                            agent_start=scenario_start,
                         )
                         writer.write_frame(frame)
                 logger.info("All waypoints reached!")
@@ -351,6 +352,7 @@ def run_scenario(
                     current_waypoint_idx=navigator.current_waypoint_idx,
                     goal_status=status_text,
                     is_goal_complete=False,
+                    agent_start=scenario_start,
                 )
 
                 writer.write_frame(frame)
