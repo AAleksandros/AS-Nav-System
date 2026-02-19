@@ -4,6 +4,18 @@ Uses streamlit-drawable-canvas for drawing circles (obstacles) and
 points (waypoints/start), with coordinate conversion between canvas
 (y-down) and world (y-up) systems.
 
+The canvas dimensions match the world dimensions (800x600) exactly,
+so the only conversion needed is a y-axis flip — no scaling.
+
+Fabric.js object model (both circle and point drawing modes):
+    originX = "left"  → ``left`` is the LEFT edge of the bounding box
+    originY = "center" → ``top`` IS the vertical center
+    Circle centers are therefore at:
+        cx = left + radius * cos(angle)
+        cy = top  + radius * sin(angle)
+    Point tool pre-adjusts ``left`` so the visual dot lands on the click,
+    but the center formula above still applies.
+
 State management:
 - A solid background_color is used for the canvas (no background_image),
   avoiding Streamlit media-file-eviction errors entirely.
@@ -13,6 +25,7 @@ State management:
   drawn-objects across reruns, making count tracking reliable.
 """
 
+import math
 from typing import Dict, List, Optional, Tuple
 
 import cv2  # type: ignore
@@ -23,29 +36,57 @@ from streamlit_drawable_canvas import st_canvas  # type: ignore
 
 from src.models import Obstacle
 
-# Canvas dimensions — scaled down from world size (800x600) to fit
-# Streamlit Cloud column layouts without clipping.
-CANVAS_WIDTH = 640
-CANVAS_HEIGHT = 480
-
-# World dimensions (used for coordinate conversion)
-WORLD_WIDTH = 800
-WORLD_HEIGHT = 600
+# Canvas dimensions match the world exactly — no scaling needed.
+CANVAS_WIDTH = 800
+CANVAS_HEIGHT = 600
 
 
 def canvas_to_world(cx: float, cy: float) -> Tuple[float, float]:
-    """Convert canvas (y-down, scaled) to world (y-up, 800x600) coordinates."""
-    wx = cx * WORLD_WIDTH / CANVAS_WIDTH
-    wy = WORLD_HEIGHT - (cy * WORLD_HEIGHT / CANVAS_HEIGHT)
-    return (wx, wy)
+    """Convert canvas (y-down) to world (y-up) coordinates."""
+    return (cx, CANVAS_HEIGHT - cy)
 
 
 def world_to_canvas(wx: float, wy: float) -> Tuple[float, float]:
-    """Convert world (y-up, 800x600) to canvas (y-down, scaled) coordinates."""
-    cx = wx * CANVAS_WIDTH / WORLD_WIDTH
-    cy = (WORLD_HEIGHT - wy) * CANVAS_HEIGHT / WORLD_HEIGHT
-    return (cx, cy)
+    """Convert world (y-up) to canvas (y-down) coordinates."""
+    return (wx, CANVAS_HEIGHT - wy)
 
+
+def _fabric_circle_center(obj: Dict) -> Tuple[float, float, float]:
+    """Extract the true center and radius from a fabric.js circle object.
+
+    The streamlit-drawable-canvas circle tool creates circles with
+    ``originX="left", originY="center"`` and a rotation ``angle``.
+    The center in canvas pixel space is:
+        cx = left + radius * cos(angle)
+        cy = top  + radius * sin(angle)
+
+    Returns (center_x, center_y, radius) in canvas coordinates.
+    """
+    left = obj.get("left", 0)
+    top = obj.get("top", 0)
+    radius = obj.get("radius", 0)
+    angle_deg = obj.get("angle", 0)
+    scale_x = obj.get("scaleX", 1.0)
+    scale_y = obj.get("scaleY", 1.0)
+    angle_rad = math.radians(angle_deg)
+    cx = left + radius * scale_x * math.cos(angle_rad)
+    cy = top + radius * scale_y * math.sin(angle_rad)
+    effective_radius = radius * max(scale_x, scale_y)
+    return cx, cy, effective_radius
+
+
+def _fabric_point_center(obj: Dict) -> Tuple[float, float]:
+    """Extract the true center from a fabric.js point object.
+
+    The point tool also uses ``originX="left", originY="center"`` with
+    ``angle=0``, so the center is simply ``(left + radius, top)``.
+
+    Returns (center_x, center_y) in canvas coordinates.
+    """
+    left = obj.get("left", 0)
+    top = obj.get("top", 0)
+    radius = obj.get("radius", 0)
+    return (left + radius, top)
 
 
 def _draw_scenario_preview(
@@ -72,7 +113,7 @@ def _draw_scenario_preview(
     # Obstacles
     for obs in obstacles:
         cx, cy = world_to_canvas(obs["x"], obs["y"])
-        r = int(obs["radius"] * CANVAS_WIDTH / WORLD_WIDTH)
+        r = int(obs["radius"])
         cv2.circle(bg, (int(cx), int(cy)), r, (80, 80, 80), -1)
         cv2.circle(bg, (int(cx), int(cy)), r, (200, 200, 200), 2)
 
@@ -133,7 +174,7 @@ def render_preset_canvas(
     obs_tuples = tuple((o.x, o.y, o.radius) for o in obstacles)
     wp_tuples = tuple(waypoints)
     img = _render_preset_image(obs_tuples, wp_tuples, start_pos)
-    st.image(img)
+    st.image(img, use_container_width=True)
 
 
 def render_custom_canvas(placement_mode: str, obstacle_radius: int = 25) -> None:
@@ -147,7 +188,7 @@ def render_custom_canvas(placement_mode: str, obstacle_radius: int = 25) -> None
     placement_mode : str
         One of "Obstacles", "Waypoints", "Start".
     obstacle_radius : int
-        Default radius for obstacles when drawn as points.
+        Radius for obstacles in world units (= canvas pixels).
     """
     # Ensure session state
     if "obstacles" not in st.session_state:
@@ -179,7 +220,7 @@ def render_custom_canvas(placement_mode: str, obstacle_radius: int = 25) -> None
         fill_color=fill_color,
         width=CANVAS_WIDTH,
         height=CANVAS_HEIGHT,
-        point_display_radius=int(obstacle_radius * CANVAS_WIDTH / WORLD_WIDTH) if placement_mode == "Obstacles" else 8,
+        point_display_radius=obstacle_radius if placement_mode == "Obstacles" else 8,
         display_toolbar=False,
         key=f"custom_canvas_{st.session_state.canvas_reset_counter}",
     )
@@ -200,33 +241,22 @@ def render_custom_canvas(placement_mode: str, obstacle_radius: int = 25) -> None
     st.session_state.canvas_obj_count = current_count
 
     for obj in new_objects:
-        obj_type = obj.get("type", "")
-
         if placement_mode == "Obstacles":
-            scale = WORLD_WIDTH / CANVAS_WIDTH
-            if obj_type == "circle":
-                # Drag-drawn circle: center at (left + radius, top + radius)
-                cx = obj.get("left", 0) + obj.get("radius", obstacle_radius)
-                cy = obj.get("top", 0) + obj.get("radius", obstacle_radius)
-                radius_canvas = max(obj.get("radius", obstacle_radius), 10)
-            else:
-                # Fallback: treat as point click, use default radius
-                cx = obj.get("left", 0)
-                cy = obj.get("top", 0)
-                radius_canvas = int(obstacle_radius * CANVAS_WIDTH / WORLD_WIDTH)
+            cx, cy, radius = _fabric_circle_center(obj)
+            radius = max(radius, 10)
+            # Canvas pixels = world units (no scaling)
             wx, wy = canvas_to_world(cx, cy)
-            world_radius = radius_canvas * scale
-            st.session_state.obstacles.append({"x": wx, "y": wy, "radius": world_radius})
+            st.session_state.obstacles.append(
+                {"x": wx, "y": wy, "radius": radius}
+            )
 
         elif placement_mode == "Waypoints":
-            cx = obj.get("left", 0)
-            cy = obj.get("top", 0)
+            cx, cy = _fabric_point_center(obj)
             wx, wy = canvas_to_world(cx, cy)
             st.session_state.waypoints.append((wx, wy))
 
         elif placement_mode == "Start":
-            cx = obj.get("left", 0)
-            cy = obj.get("top", 0)
+            cx, cy = _fabric_point_center(obj)
             wx, wy = canvas_to_world(cx, cy)
             st.session_state.start_pos = (wx, wy)
 
