@@ -156,8 +156,12 @@ with st.sidebar:
     # Advanced settings
     with st.expander("Advanced"):
         duration_override = st.slider(
-            "Max time (s)", min_value=15, max_value=60,
+            "Max time (s)", min_value=15, max_value=120,
             value=60, step=5,
+        )
+        st.caption(
+            "Tip: complex scenarios with many obstacles or tight gaps "
+            "may need 90\u2013120 s to complete."
         )
 
     st.divider()
