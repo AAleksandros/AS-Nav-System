@@ -133,7 +133,7 @@ def render_preset_canvas(
     obs_tuples = tuple((o.x, o.y, o.radius) for o in obstacles)
     wp_tuples = tuple(waypoints)
     img = _render_preset_image(obs_tuples, wp_tuples, start_pos)
-    st.image(img, width="stretch")
+    st.image(img)
 
 
 def render_custom_canvas(placement_mode: str, obstacle_radius: int = 25) -> None:
@@ -156,6 +156,8 @@ def render_custom_canvas(placement_mode: str, obstacle_radius: int = 25) -> None
         st.session_state.waypoints = []
     if "canvas_obj_count" not in st.session_state:
         st.session_state.canvas_obj_count = 0
+    if "canvas_reset_counter" not in st.session_state:
+        st.session_state.canvas_reset_counter = 0
 
     # Canvas for drawing new objects (static background)
     st.caption("Click/draw below to place objects:")
@@ -179,7 +181,7 @@ def render_custom_canvas(placement_mode: str, obstacle_radius: int = 25) -> None
         height=CANVAS_HEIGHT,
         point_display_radius=int(obstacle_radius * CANVAS_WIDTH / WORLD_WIDTH) if placement_mode == "Obstacles" else 8,
         display_toolbar=False,
-        key="custom_canvas",
+        key=f"custom_canvas_{st.session_state.canvas_reset_counter}",
     )
 
     # --- Detect and process new objects ---
@@ -228,8 +230,8 @@ def render_custom_canvas(placement_mode: str, obstacle_radius: int = 25) -> None
             wx, wy = canvas_to_world(cx, cy)
             st.session_state.start_pos = (wx, wy)
 
-    # Trigger rerun so the preview image updates
-    st.rerun()
+    # No st.rerun() needed — session state is already updated and the
+    # info bar (rendered after this function returns) will reflect the change.
 
 
 def get_custom_obstacles() -> List[Obstacle]:

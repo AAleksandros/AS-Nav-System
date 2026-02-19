@@ -96,11 +96,20 @@ def _init_state() -> None:
         "run_data": None,
         "metrics": None,
         "canvas_obj_count": 0,
+        "canvas_reset_counter": 0,
         "view_mode": "editor",
     }
     for key, val in defaults.items():
         if key not in st.session_state:
             st.session_state[key] = val
+
+
+def _on_mode_change() -> None:
+    """Reset results state when switching between Preset and Custom modes."""
+    st.session_state.view_mode = "editor"
+    st.session_state.video_bytes = None
+    st.session_state.run_data = None
+    st.session_state.metrics = None
 
 
 _init_state()
@@ -114,7 +123,7 @@ with st.sidebar:
 
     # Mode selection
     mode = st.radio("Mode", ["Preset", "Custom"], horizontal=True,
-                    key="mode")
+                    key="mode", on_change=_on_mode_change)
 
     if mode == "Preset":
         scenario_names = get_scenario_names()
@@ -144,14 +153,6 @@ with st.sidebar:
         )
         slider_overrides[path] = val
 
-    # Playback speed
-    st.divider()
-    speed_multiplier = st.select_slider(
-        "Playback speed",
-        options=[1.0, 1.5, 2.0, 3.0],
-        value=1.0,
-    )
-
     # Advanced settings
     with st.expander("Advanced"):
         duration_override = st.slider(
@@ -165,6 +166,8 @@ with st.sidebar:
                      "run_data", "metrics", "canvas_obj_count", "view_mode"]:
             if key in st.session_state:
                 del st.session_state[key]
+        st.session_state.canvas_reset_counter = st.session_state.get(
+            "canvas_reset_counter", 0) + 1
         _init_state()
         st.rerun()
 
@@ -188,6 +191,8 @@ with col_main:
                          "run_data", "metrics", "canvas_obj_count"]:
                 if key in st.session_state:
                     del st.session_state[key]
+            st.session_state.canvas_reset_counter = st.session_state.get(
+                "canvas_reset_counter", 0) + 1
             st.session_state.view_mode = "editor"
             _init_state()
             st.rerun()
@@ -247,6 +252,8 @@ with col_main:
                     st.session_state.waypoints = []
                     st.session_state.start_pos = None
                     st.session_state.canvas_obj_count = 0
+                    st.session_state.canvas_reset_counter = st.session_state.get(
+                        "canvas_reset_counter", 0) + 1
                     st.session_state.video_bytes = None
                     st.session_state.run_data = None
                     st.session_state.metrics = None
@@ -260,6 +267,9 @@ with col_main:
                         st.session_state.waypoints.pop()
                     elif placement_mode == "Start":
                         st.session_state.start_pos = None
+                    st.session_state.canvas_obj_count = 0
+                    st.session_state.canvas_reset_counter = st.session_state.get(
+                        "canvas_reset_counter", 0) + 1
                     st.rerun()
 
 with col_right:
@@ -302,6 +312,12 @@ with col_right:
     else:
         # --- Controls panel (editor mode) ---
         st.subheader("Controls")
+
+        speed_multiplier = st.select_slider(
+            "Playback speed",
+            options=[1.0, 1.5, 2.0, 3.0],
+            value=1.0,
+        )
 
         # Run button
         can_run = True
