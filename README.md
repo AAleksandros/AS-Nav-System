@@ -4,7 +4,7 @@
 
 > 2D navigation simulator using Artificial Potential Fields, PID heading control, and simulated range sensors
 
-A Python-based autonomous navigation system that simulates intelligent obstacle avoidance in a 2D world. The agent uses APF (Artificial Potential Fields) for reactive path planning, a PID controller for heading tracking, and ray-cast range sensors for obstacle detection. Designed as a DTU MSc Autonomous Systems portfolio project demonstrating real algorithms from the autonomous systems literature.
+A Python-based autonomous navigation system that simulates intelligent obstacle avoidance in a 2D world. The agent uses APF (Artificial Potential Fields) for reactive path planning, a PID controller for heading tracking, and ray-cast range sensors for obstacle detection.
 
 ## Demo
 
